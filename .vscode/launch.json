@@ -1,0 +1,45 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Pintos: F5 debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/pintos/.debug-build/kernel.o",
+            "cwd": "${workspaceFolder}/pintos/.debug-build",
+            "MIMode": "gdb",
+            "targetArchitecture": "x64",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "miDebuggerServerAddress": "127.0.0.1:1234",
+            "debugServerPath": "/usr/bin/python3",
+            "debugServerArgs": "\"${workspaceFolder}/.devcontainer/debug.py\" ${config:pintos.project} \"${config:pintos.debugArgs}\"",
+            "serverStarted": "PINTOS_GDB_READY",
+            "serverLaunchTimeout": 20000,
+            "filterStdout": true,
+            "filterStderr": true,
+            "preLaunchTask": "Pintos: prepare debug",
+            "stopAtEntry": true,
+            "hardwareBreakpoints": {
+                "require": true,
+                "limit": 4
+            },
+            "setupCommands": [
+                {
+                    "text": "set architecture i386:x86-64"
+                }
+            ],
+            "customLaunchSetupCommands": [
+                {
+                    "text": "-file-exec-and-symbols \"${workspaceFolder}/pintos/.debug-build/kernel.o\""
+                },
+                {
+                    "text": "-target-select remote 127.0.0.1:1234"
+                },
+                {
+                    "text": "-break-insert -h -t main"
+                }
+            ],
+            "launchCompleteCommand": "exec-continue"
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+{
+    "pintos.projects": ["threads", "userprog", "vm", "ALL"],
+    "pintos.project": 0,
+    "pintos.testShortcutEnabled": true,
+    "pintos.debugArgs": "-- -q run priority-donate-one"
+}
