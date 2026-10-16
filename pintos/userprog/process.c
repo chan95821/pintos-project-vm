@@ -414,8 +414,53 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
+
+	
+
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+	uintptr_t rsp = if_->rsp;
+	uint64_t argc = 0;
+
+	char *token, *save_ptr;
+	size_t len;
+
+	for (token = strtok_r (file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
+		len = strlen(token) + 1;
+		rsp -= len;
+		memcpy((uint64_t*)rsp, token , len);
+		argc++;
+	}
+
+	char *str_ptr = (char *)rsp;
+
+	size_t padding = rsp % 8;
+	rsp -= padding;
+	memset((uint64_t*)rsp, 0, padding);
+	// 여기까지 문자열 넣음 + 패딩
+
+	
+	//null pointer (argc[n+1])
+	rsp -= 8;
+	*(uint64_t *) rsp = 0;
+
+	rsp -= argc * 8;
+	
+
+	for(size_t i = 0; i<argc; i++){
+		*((uint64_t *)rsp + (argc - 1 - i)) = (uint64_t)str_ptr;
+		len = strlen(str_ptr) + 1;
+		str_ptr += len;
+	}
+
+	//null return address
+	rsp -= 8;
+	*(uint64_t *) rsp = 0;
+
+	if_->R.rdi = argc;
+	if_->R.rsi = rsp + 8; // rsi는 숫자 칸이어서 그대로 써야함  
+	if_->rsp = rsp;
 
 	success = true;
 

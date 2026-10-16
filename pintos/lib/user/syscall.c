@@ -31,7 +31,7 @@ static __inline int64_t syscall (uint64_t num_, uint64_t a1_, uint64_t a2_,
 
 /* Invokes syscall NUMBER, passing no arguments, and returns the
    return value as an `int'. */
-#define syscall0(NUMBER) ( \
+#define syscall0(NUMBER) ( 
 		syscall(((uint64_t) NUMBER), 0, 0, 0, 0, 0, 0))
 
 /* Invokes syscall NUMBER, passing argument ARG0, and returns the
@@ -46,6 +46,12 @@ static __inline int64_t syscall (uint64_t num_, uint64_t a1_, uint64_t a2_,
 			((uint64_t) ARG0), \
 			((uint64_t) ARG1), \
 			0, 0, 0, 0))
+
+
+// int
+// write (int fd, const void *buffer, unsigned size) {
+// 	return syscall3 (SYS_WRITE, fd, buffer, size);
+// }
 
 #define syscall3(NUMBER, ARG0, ARG1, ARG2) ( \
 		syscall(((uint64_t) NUMBER), \

@@ -11,6 +11,8 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
+static int syscall_write(int fd, void *buffer, size_t size);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -41,6 +43,31 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+
+	uint64_t syscall_num = f->R.rax;
+	int result;
+	switch (syscall_num){
+		case SYS_WRITE:
+			if((result = syscall_write(f->R.rdi, (void *)f->R.rsi, f->R.rdx)) == -1){
+				thread_exit ();
+			}
+			else{
+				f->R.rax = result; 
+			}
+			break;
+		default:
+			printf ("system call!\n");
+			thread_exit ();
+	}
+		
+}
+
+static int syscall_write(int fd, void *buffer, size_t size){
+	if( !is_user_vaddr(buffer) || !is_user_vaddr((char *)buffer + size) ){
+		return -1;
+	}
+	if(fd == 1){
+		putbuf(buffer, size);
+	}
+	return size;
 }
