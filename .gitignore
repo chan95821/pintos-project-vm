@@ -19,6 +19,7 @@
 **/bin/
 **/obj/
 **/output/
+/pintos/.debug-build
 # core dump
 core
 

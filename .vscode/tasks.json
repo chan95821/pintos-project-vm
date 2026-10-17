@@ -1,0 +1,57 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Pintos: build",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/.vscode/run_shortcut.py",
+                "build",
+                "${config:pintos.project}"
+            ],
+            "problemMatcher": "$gcc",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Pintos: select and run test",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/.vscode/run_shortcut.py",
+                "test",
+                "${config:pintos.project}"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${workspaceFolder}/pintos/utils:${env:PATH}"
+                }
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            },
+            "runOptions": {
+                "instanceLimit": 1,
+                "reevaluateOnRerun": true
+            }
+        },
+        {
+            "label": "Pintos: prepare debug",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/.vscode/run_shortcut.py",
+                "debug-build",
+                "${config:pintos.project}"
+            ],
+            "problemMatcher": "$gcc"
+        }
+    ]
+}
