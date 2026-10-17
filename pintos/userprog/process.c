@@ -18,7 +18,6 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
-#include "threads/vaddr.h"
 
 #ifdef VM
 #include "vm/vm.h"
@@ -240,8 +239,11 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	
-	process_cleanup ();
+	if(curr->pml4 != NULL){
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status );
+	}
+
+	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
 }
 
 /* Free the current process's resources. */

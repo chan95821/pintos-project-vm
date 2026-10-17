@@ -7,9 +7,11 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/vaddr.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
 
 /* System call.
  *
@@ -41,35 +43,42 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	
-	uint64_t sys_numb = f->R.rax;
 
-	// intr_frame 유효성 검사 필요 
+	uint64_t syscall_num = f->R.rax;
+	int result;
+	switch (syscall_num){
+		case SYS_EXIT:{
+			thread_current()->exit_status = f->R.rdi;
+			thread_exit();
+			break;	
+		}
+		case SYS_WRITE:{
+			void *  buffer = (void *)f->R.rsi;
+			int fd = f->R.rdi;
+			uint64_t size = f->R.rdx;
 
-	switch (sys_numb) {
-	case SYS_WRITE : // 10
-		/* code */
-		int fd = f->R.rdi;
-		void * buff = f->R.rsi;
-		uint64_t size = f->R.rdx;
-
-
-		if (fd == 1){
-			putbuf(buff, size);
+			if( !is_user_vaddr(buffer) || !is_user_vaddr((char *)buffer + size) || buffer == NULL){
+				thread_current()->exit_status = -1;
+				thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
+			}
+			if(fd == 1){
+				if(size == 0){
+					f->R.rax = 0;
+				}
+				else{
+					putbuf(buffer, size);
+					f->R.rax = size;
+				}
+			}
+			else{
+				f->R.rax = -1; // write에 실패한 경우 (fd를 찾을 수 없음)
+			}
+			break;
 		}
 		
-
-		
-		break;
-	
-	case SYS_EXIT : // 1
-		uint64_t status = f->R.rdi;
-		thread_current()->name 
-
-	default:
-		printf ("system call!\n");
-		// thread_exit ();
-		break;
+		default:
+			printf ("system call!\n");
+			thread_exit ();
 	}
-	
+		
 }
