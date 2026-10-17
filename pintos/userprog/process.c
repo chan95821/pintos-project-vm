@@ -18,6 +18,8 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/vaddr.h"
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -26,6 +28,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static void get_first_string_cpy(const char * str, char *buffer, int size);
 
 /* General process initializer for initd and other process. */
 static void
@@ -51,7 +54,9 @@ process_create_initd (const char *file_name) {
 	strlcpy (fn_copy, file_name, PGSIZE);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	char title[NAME_MAX+1];
+	get_first_string_cpy(file_name, title, NAME_MAX + 1);
+	tid = thread_create (title, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -158,6 +163,19 @@ error:
 	thread_exit ();
 }
 
+/*\0 까지 포함한 버퍼의 크기를 넣어야함*/
+static void get_first_string_cpy(const char * str, char *buffer, int size){
+	int total = 1;
+	while(*str != ' ' && *str != '\0'){
+		if((total++) >= size ){
+			break;
+		}
+		*buffer++ = *str++;
+	}
+	*buffer = '\0';
+
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
@@ -204,7 +222,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+	while(true){
+		1;
+	}
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -336,7 +356,10 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	char title[NAME_MAX+1];
+	get_first_string_cpy(file_name, title, NAME_MAX + 1);
+
+	file = filesys_open (title);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
@@ -426,7 +449,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	char *token, *save_ptr;
 	size_t len;
 
-	for (token = strtok_r (file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
+	for (token = strtok_r ((char *)file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
 		len = strlen(token) + 1;
 		rsp -= len;
 		memcpy((uint64_t*)rsp, token , len);
@@ -469,6 +492,7 @@ done:
 	file_close (file);
 	return success;
 }
+
 
 
 /* Checks whether PHDR describes a valid, loadable segment in

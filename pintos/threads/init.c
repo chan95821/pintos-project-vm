@@ -261,7 +261,7 @@ run_actions (char **argv) {
 		char *name;                       /* Action name. */
 		int argc;                         /* # of args, including action name. */
 		void (*function) (char **argv);   /* Function to execute action. */
-	}; 
+	};
 
 	/* Table of supported actions. */
 	static const struct action actions[] = {
