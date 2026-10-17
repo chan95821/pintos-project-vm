@@ -95,10 +95,11 @@ struct thread {
 	int local_priority;                 /* priority를 양보 받기 전의 priority */
 	int nice; 							/* mlfqs를 위한 필드 */
 	int recent_cpu;						/* recent_cpu는 고정소수점으로 저장한다. */
+	int exit_status;							/*종료 상태*/
 
 	int64_t local_tick; 				/* 깨어날 절대시간 */
 
-	/* Shared between thread.c and synch.c. */
+	/* Shared between thread. and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct lock *wait_lock;                  /* 지금 기다리는 lock. */
 	struct list held_lock;              /* 지금 가지고 있는 lock의 리스트. */
