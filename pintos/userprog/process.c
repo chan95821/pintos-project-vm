@@ -18,6 +18,8 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/vaddr.h"
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -26,6 +28,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static bool get_first_string_cpy(const char * str, char *buffer, int size);
 
 /* General process initializer for initd and other process. */
 static void
@@ -44,6 +47,11 @@ process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
 
+	char title[NAME_MAX+1];
+	if(get_first_string_cpy(file_name, title, NAME_MAX + 1)== false){
+		return TID_ERROR;
+	}
+
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
@@ -52,7 +60,7 @@ process_create_initd (const char *file_name) {
 	strlcpy (fn_copy, file_name, PGSIZE);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (title, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -159,6 +167,20 @@ error:
 	thread_exit ();
 }
 
+/*\0 까지 포함한 버퍼의 크기를 넣어야함*/
+static bool get_first_string_cpy(const char * str, char *buffer, int size){
+	int total = 1;
+	while(*str != ' ' && *str != '\0'){
+		if((total++) >= size ){
+			return false;
+		}
+		*buffer++ = *str++;
+	}
+	*buffer = '\0';
+	return true;
+
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
@@ -205,7 +227,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+	while(true){
+		1;
+	}
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -353,7 +377,12 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 	/* Open executable file. */
-	file = filesys_open (fname);
+	char title[NAME_MAX+1];
+	if(get_first_string_cpy(file_name, title, NAME_MAX + 1) == false){
+		goto done;
+	}
+
+	file = filesys_open (title);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
@@ -431,80 +460,53 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
+
+	
+
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
-	// 1. 문자열 나누기 
-	
-	// 1.1 Stack pointer 주소 8의 배수로 설정 
-	uintptr_t stp = USER_STACK;
-	
-	// 배열 길이? 
-	
-	tokst = malloc(strlen(file_name)+1);
-	if (tokst == NULL){
-		goto done;
-	}
-	strcpy(tokst, file_name);
+	uintptr_t rsp = if_->rsp;
+	uint64_t argc = 0;
 
-   	char *tok, *temptr;
-	int argc = 0;
-	int pad = 0;
-	
-	// 1.2. 문자열 쪼개기 
-	// file_name 타입 진단 대상?
-	for (tok = strtok_r (tokst, " ", &temptr); tok != NULL; tok = strtok_r(NULL, " ", &temptr))
-	{
-		// a. 쪼갠 문자열 길이 
-		size_t toklen = strlen(tok);
-		pad += (toklen+1);
-		// b. 문자열 길이 만큼 stack 포인터 이동, 공간 확보
-		stp -= (toklen+1);
-		
-		// c. memcpy
-		memcpy((void *)stp, tok, toklen+1);
-		
+	char *token, *save_ptr;
+	size_t len;
+
+	for (token = strtok_r ((char *)file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
+		len = strlen(token) + 1;
+		rsp -= len;
+		memcpy((uint64_t*)rsp, token , len);
 		argc++;
-		
 	}
-	uintptr_t btm = stp;
-	
-	// 1.3 패딩 설정 
-	if (pad % 8 != 0){
-		int padsize = ((pad / 8 + 1) *8) - pad;
-		stp -= padsize ;
-		memset((void *)stp, 0, padsize);
-	}
-	// 1.4 Null 초기화 	
-	stp -= 8;
-	memset((void *)stp, 0, 8);
 
-	// 1.5 공간 확보 점프  
-	stp -= 8*argc;
-	 
-	uintptr_t rst = stp; // argv[0] 주솟값 
-	
-	int tempi =0;
-	while (tempi < argc){
-		// argv 주솟값 넣어줄 위치 - NULL 바로 아래
-		rst = stp + (argc -1 -tempi) *8 ;
-		// uintptr_t 포인터 를 역참조? 
-		*(uintptr_t *)rst = btm;
+	char *str_ptr = (char *)rsp;
 
-		// 
-		btm += strlen((char *)btm) +1;
-		tempi++;
-	}
+	size_t padding = rsp % 8;
+	rsp -= padding;
+	memset((uint64_t*)rsp, 0, padding);
+	// 여기까지 문자열 넣음 + 패딩
+
 	
-	// 2. %rdi -> argc/ %rsi -> argv[] 
+	//null pointer (argc[n+1])
+	rsp -= 8;
+	*(uint64_t *) rsp = 0;
+
+	rsp -= argc * 8;
+	
+
+	for(size_t i = 0; i<argc; i++){
+		*((uint64_t *)rsp + (argc - 1 - i)) = (uint64_t)str_ptr;
+		len = strlen(str_ptr) + 1;
+		str_ptr += len;
+	}
+
+	//null return address
+	rsp -= 8;
+	*(uint64_t *) rsp = 0;
+
 	if_->R.rdi = argc;
-	if_->R.rsi = stp;
-
-	// 3. Set fake return address(0x00)
-	stp -= 8;
-	memset((void *)stp, 0, 8);
-	if_->rsp = stp;
-
+	if_->R.rsi = rsp + 8; // rsi는 숫자 칸이어서 그대로 써야함  
+	if_->rsp = rsp;
 
 	success = true;
 
@@ -516,6 +518,7 @@ done:
 
 	return success;
 }
+
 
 
 /* Checks whether PHDR describes a valid, loadable segment in
