@@ -33,6 +33,7 @@ process_init (void) {
 	struct thread *current = thread_current ();
 }
 
+
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -185,7 +186,7 @@ process_exec (void *f_name) {
 		return -1;
 
 	/* Start switched process. */
-	do_iret (&_if);
+	do_iret (&_if); // 여기에 wait()? 
 	NOT_REACHED ();
 }
 
@@ -328,15 +329,31 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
-
+	char *fname;
+	char *stok;
+	char *tempst = NULL;
+	char *tokst = NULL;
+	
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
-
+	
+	// strtok() -> extract command 
+	tempst = malloc(strlen(file_name)+1);
+	if (tempst == NULL){
+		goto done;
+	}
+	
+	strcpy(tempst, file_name);
+	fname = strtok_r(tempst, " ", &stok);
+	if (fname == NULL){
+		printf ("load: %s: only space \n", file_name);
+		goto done;
+	}
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (fname);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
@@ -417,11 +434,86 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
+	// 1. 문자열 나누기 
+	
+	// 1.1 Stack pointer 주소 8의 배수로 설정 
+	uintptr_t stp = USER_STACK;
+	
+	// 배열 길이? 
+	
+	tokst = malloc(strlen(file_name)+1);
+	if (tokst == NULL){
+		goto done;
+	}
+	strcpy(tokst, file_name);
+
+   	char *tok, *temptr;
+	int argc = 0;
+	int pad = 0;
+	
+	// 1.2. 문자열 쪼개기 
+	// file_name 타입 진단 대상?
+	for (tok = strtok_r (tokst, " ", &temptr); tok != NULL; tok = strtok_r(NULL, " ", &temptr))
+	{
+		// a. 쪼갠 문자열 길이 
+		size_t toklen = strlen(tok);
+		pad += (toklen+1);
+		// b. 문자열 길이 만큼 stack 포인터 이동, 공간 확보
+		stp -= (toklen+1);
+		
+		// c. memcpy
+		memcpy((void *)stp, tok, toklen+1);
+		
+		argc++;
+		
+	}
+	uintptr_t btm = stp;
+	
+	// 1.3 패딩 설정 
+	if (pad % 8 != 0){
+		int padsize = ((pad / 8 + 1) *8) - pad;
+		stp -= padsize ;
+		memset((void *)stp, 0, padsize);
+	}
+	// 1.4 Null 초기화 	
+	stp -= 8;
+	memset((void *)stp, 0, 8);
+
+	// 1.5 공간 확보 점프  
+	stp -= 8*argc;
+	 
+	uintptr_t rst = stp; // argv[0] 주솟값 
+	
+	int tempi =0;
+	while (tempi < argc){
+		// argv 주솟값 넣어줄 위치 - NULL 바로 아래
+		rst = stp + (argc -1 -tempi) *8 ;
+		// uintptr_t 포인터 를 역참조? 
+		*(uintptr_t *)rst = btm;
+
+		// 
+		btm += strlen((char *)btm) +1;
+		tempi++;
+	}
+	
+	// 2. %rdi -> argc/ %rsi -> argv[] 
+	if_->R.rdi = argc;
+	if_->R.rsi = stp;
+
+	// 3. Set fake return address(0x00)
+	stp -= 8;
+	memset((void *)stp, 0, 8);
+	if_->rsp = stp;
+
+
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
+	free(tempst);	
+	free(tokst);
+
 	return success;
 }
 

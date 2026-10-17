@@ -41,6 +41,26 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
+	
+	uint64_t sys_numb = f->R.rax;
+	
+
+	if (*(sys_numb)==nullptr){
+		return;
+	}
+
+	switch (sys_numb)
+	{
+	case 3 :
+		/* code */
+		uint64_t fd = f->R.rdi;
+		uint64_t buff = f->R.rsi;
+		uint64_t size = f->R.rdx;
+		break;
+	
+	default:
+		break;
+	}
 	printf ("system call!\n");
 	thread_exit ();
 }
