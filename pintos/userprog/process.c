@@ -36,7 +36,6 @@ process_init (void) {
 	struct thread *current = thread_current ();
 }
 
-
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -208,7 +207,7 @@ process_exec (void *f_name) {
 		return -1;
 
 	/* Start switched process. */
-	do_iret (&_if); // 여기에 wait()? 
+	do_iret (&_if);
 	NOT_REACHED ();
 }
 
@@ -228,7 +227,8 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	while(true){
-		1;
+		thread_yield();
+		
 	}
 }
 
@@ -240,7 +240,7 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+	
 	process_cleanup ();
 }
 
@@ -353,29 +353,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
-	char *fname;
-	char *stok;
-	char *tempst = NULL;
-	char *tokst = NULL;
-	
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
-	
-	// strtok() -> extract command 
-	tempst = malloc(strlen(file_name)+1);
-	if (tempst == NULL){
-		goto done;
-	}
-	
-	strcpy(tempst, file_name);
-	fname = strtok_r(tempst, " ", &stok);
-	if (fname == NULL){
-		printf ("load: %s: only space \n", file_name);
-		goto done;
-	}
+
 	/* Open executable file. */
 	char title[NAME_MAX+1];
 	if(get_first_string_cpy(file_name, title, NAME_MAX + 1) == false){
@@ -513,9 +497,6 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	file_close (file);
-	free(tempst);	
-	free(tokst);
-
 	return success;
 }
 

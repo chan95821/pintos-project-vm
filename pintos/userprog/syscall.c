@@ -43,24 +43,33 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	
 	uint64_t sys_numb = f->R.rax;
-	
 
-	if (*(sys_numb)==nullptr){
-		return;
-	}
+	// intr_frame 유효성 검사 필요 
 
-	switch (sys_numb)
-	{
-	case 3 :
+	switch (sys_numb) {
+	case SYS_WRITE : // 10
 		/* code */
-		uint64_t fd = f->R.rdi;
-		uint64_t buff = f->R.rsi;
+		int fd = f->R.rdi;
+		void * buff = f->R.rsi;
 		uint64_t size = f->R.rdx;
+
+
+		if (fd == 1){
+			putbuf(buff, size);
+		}
+		
+
+		
 		break;
 	
+	case SYS_EXIT : // 1
+		uint64_t status = f->R.rdi;
+		thread_current()->name 
+
 	default:
+		printf ("system call!\n");
+		// thread_exit ();
 		break;
 	}
-	printf ("system call!\n");
-	thread_exit ();
+	
 }
