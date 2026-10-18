@@ -5,11 +5,13 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
 
 struct lock;
+struct wait_info;
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -104,6 +106,8 @@ struct thread {
 	struct lock *wait_lock;                  /* 지금 기다리는 lock. */
 	struct list held_lock;              /* 지금 가지고 있는 lock의 리스트. */
 	struct list_elem all;				/* all list를 위한 list_elem */
+	struct list child_list;			/*child 정보를 관리하기 위한 list_elem*/
+	struct wait_info *my_info;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -118,6 +122,16 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+struct wait_info{
+	int reference;
+	int return_status;
+	tid_t child_tid;
+	bool waited;
+	struct semaphore wait;
+	struct list_elem child_elem;
+};
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
 
 #ifdef VM
 #include "vm/vm.h"
@@ -220,14 +221,50 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+
+// struct wait_info{
+// 	int reference;
+// 	int return_status;
+// 	struct semaphore wait;
+// 	struct list_elem child;
+// };
+
+
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while(true){
-		1;
+	
+	struct wait_info *child = NULL;
+	struct list_elem *curr;
+	struct list *child_list = &(thread_current()->child_list);
+	for(curr = list_begin(child_list); curr != list_end(child_list); curr = list_next(curr)){
+		if(list_entry(curr, struct wait_info, child_elem)->child_tid == child_tid){
+			child = list_entry(curr, struct wait_info, child_elem);
+			break;
+		}
 	}
+
+	if(child == NULL || child->waited == true){
+		return -1;
+	}
+
+	sema_down(&(child->wait));
+
+	enum intr_level old_level = intr_disable();
+
+	child->waited = true;
+	int return_status = child->return_status;
+	list_remove(&child->child_elem);
+	child->reference--;
+
+	if(child->reference == 0){
+		free(child);
+	}
+	intr_set_level(old_level);
+
+	return return_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -238,10 +275,38 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+
 	if(curr->pml4 != NULL){
 		printf("%s: exit(%d)\n", curr->name, curr->exit_status );
 	}
 
+	enum intr_level old_level = intr_disable();
+	struct list *child_list = &(curr->child_list);
+	struct list_elem *ptr;
+	for(ptr = list_begin(child_list); ptr != list_end(child_list);){
+		struct wait_info *child = list_entry(ptr, struct wait_info, child_elem);
+		child->reference--;
+		if(child->reference == 0){
+			struct list_elem *next = list_next(ptr);
+			free(child);
+			ptr = next;
+		}
+		else{
+			ptr = list_next(ptr);
+		}
+	}
+
+	if(curr->my_info != NULL){
+		curr->my_info->return_status = curr->exit_status;
+		intr_set_level(old_level);
+		sema_up(&(curr->my_info->wait));
+		old_level = intr_disable();
+		curr->my_info->reference--;
+		if(curr->my_info->reference == 0){
+			free(curr->my_info);
+		}
+	}
+	intr_set_level(old_level);
 	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
 }
 
