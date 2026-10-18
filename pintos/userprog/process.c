@@ -225,10 +225,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while(true){
-		thread_yield();
-		
-	}
+	
+	
+	// 3. Parent process sema down >> blocked
+	sema_down(&thread_current()->stat->sema);
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -242,6 +242,9 @@ process_exit (void) {
 	if(curr->pml4 != NULL){
 		printf("%s: exit(%d)\n", curr->name, curr->exit_status );
 	}
+	// 4. Child process sema up
+	sema_up(&curr->stat->sema);
+	
 
 	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
 }

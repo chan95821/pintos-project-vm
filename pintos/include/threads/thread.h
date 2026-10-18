@@ -5,6 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -86,7 +88,13 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
-struct thread {
+
+ struct sema_info {
+	struct semaphore sema; 
+	int pid ;
+};
+
+ struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
@@ -97,6 +105,7 @@ struct thread {
 	int recent_cpu;						/* recent_cpu는 고정소수점으로 저장한다. */
 	int exit_status;							/*종료 상태*/
 
+	struct sema_info *stat;
 	int64_t local_tick; 				/* 깨어날 절대시간 */
 
 	/* Shared between thread. and synch.c. */
@@ -118,6 +127,8 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

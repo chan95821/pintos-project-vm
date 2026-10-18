@@ -7,12 +7,14 @@
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
 #include "threads/fixed_point.h" // 고정소수점 파일 헤더
 #include "devices/timer.h"
+
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -210,8 +212,15 @@ thread_print_stats (void) {
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
+
 	struct thread *t;
 	tid_t tid;
+
+	
+	// 0. parent process 의 공유 sema 설정 
+	// Only cover single child 
+	set_sema_info(thread_current());
+	
 
 	ASSERT (function != NULL);
 
@@ -223,6 +232,9 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+
+	// 1. child process 의 공유 sema 설정
+	t->stat = thread_current()->stat;
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -248,6 +260,14 @@ thread_create (const char *name, int priority,
 	thread_check_preempt ();
 
 	return tid;
+}
+
+void set_sema_info(struct thread *th){
+	
+	struct sema_info *p_stat = malloc(sizeof(struct sema_info));
+	sema_init(&p_stat->sema, 0);
+	th->stat = p_stat;
+	
 }
 
 /*ready list 삭제 후 재 정렬 함수*/

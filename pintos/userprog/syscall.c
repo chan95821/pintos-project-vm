@@ -75,6 +75,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 		}
+		case SYS_WAIT:{
+			// %rdi == child process id 
+			int pid = f->R.rdi;
+			
+
+		}
 		
 		default:
 			printf ("system call!\n");
