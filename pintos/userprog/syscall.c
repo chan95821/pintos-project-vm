@@ -11,7 +11,9 @@
 #include "userprog/process.h"
 #include "threads/init.h"
 #include "filesys/directory.h"
-
+#include "filesys/file.h"
+#include "threads/malloc.h"
+#include "filesys/filesys.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -112,7 +114,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				fd = 2;
 			}
 			else {
-				fd = (list_entry(list_begin(&curr->file_list), struct fd_info, elem)->fd)++;
+				fd = (list_entry(list_begin(&curr->file_list), struct fd_info, elem)->fd) + 1;
 			}
 
 			struct fd_info *fd_info = malloc(sizeof(struct fd_info));
@@ -146,6 +148,31 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				f->R.rax = -1; // write에 실패한 경우 (fd를 찾을 수 없음)
 			}
 			break;
+		}
+		case SYS_CLOSE:{
+			int fd = f->R.rdi;
+
+			if ( fd == NULL ) {
+				thread_current()->exit_status = -1;
+				thread_exit();
+			}
+
+			struct thread *curr = thread_current();
+			struct list_elem *ptr;
+			struct list *list = &curr->file_list;
+
+			for(ptr = list_begin(list); ptr != list_end(list); ptr = list_next(ptr)){
+				if(list_entry(ptr, struct fd_info, elem)-> fd == fd){
+					struct fd_info *fd_info = list_entry(ptr, struct fd_info, elem);
+					list_remove(ptr);
+					file_close(fd_info->my_file);
+					free(fd_info);
+					break;
+				}
+			}
+			break;
+
+
 		}
 		default:
 			printf ("system call!\n");
