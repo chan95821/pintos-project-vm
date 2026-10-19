@@ -47,6 +47,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t syscall_num = f->R.rax;
 	int result;
 	switch (syscall_num){
+		case SYS_HALT:{
+			power_off();
+		}
 		case SYS_EXIT:{
 			thread_current()->exit_status = f->R.rdi;
 			thread_exit();
