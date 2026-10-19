@@ -51,7 +51,13 @@
                 "debug-build",
                 "${config:pintos.project}"
             ],
-            "problemMatcher": "$gcc"
+            "problemMatcher": "$gcc",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            }
         }
     ]
 }

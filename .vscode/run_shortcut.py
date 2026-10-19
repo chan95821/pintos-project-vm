@@ -1,5 +1,6 @@
 """Select and run a Pintos test for the project supplied by VS Code settings."""
 import re
+import shlex
 import json
 import os
 from pathlib import Path
@@ -66,6 +67,44 @@ def run_all():
     return int(any(results.values()))
 
 
+def select_test(project, shortcut):
+    tests = test_names(project)
+    if not tests:
+        raise ValueError(f'No tests found for {project}')
+    print(f'\n{shortcut}: {project} 테스트 선택', flush=True)
+    for number, test in enumerate(tests, 1):
+        print(f'{number:3}. {test.removeprefix("tests/" + project + "/")}')
+    while True:
+        choice = input('\n테스트 번호 또는 이름 (q: 취소): ').strip()
+        if choice.lower() == 'q':
+            return None
+        if choice.isdigit() and 1 <= int(choice) <= len(tests):
+            return tests[int(choice) - 1]
+        selected = choice if choice.startswith('tests/') else f'tests/{project}/{choice}'
+        if selected in tests:
+            return selected
+        print('목록의 번호 또는 이름을 입력하세요.')
+
+
+def debug_arguments(project, selected):
+    # Dry-run the real test recipe: make supplies arguments, disks and PUTFILES.
+    result = subprocess.run(
+        ['make', '--no-print-directory', '-n', '-W', 'os.dsk',
+         selected + '.output'], cwd=ROOT / 'pintos' / project / 'build',
+        text=True, stdout=subprocess.PIPE, check=True)
+    commands = [line for line in result.stdout.splitlines()
+                if line.startswith('pintos ')]
+    if len(commands) != 1:
+        raise ValueError('선택한 테스트의 Pintos 실행 명령을 찾을 수 없습니다.')
+    tokens = shlex.split(commands[0])
+    # Stop before the test runner's output redirection; keep quoted run arguments.
+    arguments = tokens[1:tokens.index('<')]
+    # A test timeout must not kill QEMU while stopped at a breakpoint.
+    index = arguments.index('-T')
+    del arguments[index:index + 2]
+    return arguments
+
+
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in ('test', 'build', 'debug-build'):
         raise ValueError('Usage: run_shortcut.py <test|build|debug-build> <project index>')
@@ -74,6 +113,11 @@ def main():
     if action == 'debug-build':
         if project == 'ALL':
             raise ValueError('F5는 ALL을 지원하지 않습니다. pintos.project를 0~2로 지정하세요.')
+        state = ROOT / 'pintos' / project / 'build' / '.vscode-debug.json'
+        state.unlink(missing_ok=True)
+        selected = select_test(project, 'F5')
+        if selected is None:
+            return 130
         status = build(project)
         if status:
             return status
@@ -81,29 +125,19 @@ def main():
         if link.is_symlink():
             link.unlink()
         link.symlink_to(Path(project) / 'build', target_is_directory=True)
+        arguments = debug_arguments(project, selected)
+        state.write_text(json.dumps({'project': project, 'test': selected,
+                                     'arguments': arguments}))
+        print(f'디버깅: {selected}', flush=True)
         return 0
     if action == 'build':
         projects = ('threads', 'userprog', 'vm') if project == 'ALL' else (project,)
         return int(any([build(name) for name in projects]))
     if project == 'ALL':
         return run_all()
-    tests = test_names(project)
-    if not tests:
-        raise ValueError(f'No tests found for {project}')
-    print(f'\nF6: {project} 테스트 선택', flush=True)
-    for number, test in enumerate(tests, 1):
-        print(f'{number:3}. {test.removeprefix("tests/" + project + "/")}')
-    while True:
-        choice = input('\n테스트 번호 또는 이름 (q: 취소): ').strip()
-        if choice.lower() == 'q':
-            return 0
-        if choice.isdigit() and 1 <= int(choice) <= len(tests):
-            selected = tests[int(choice) - 1]
-            break
-        selected = f'tests/{project}/{choice}'
-        if selected in tests:
-            break
-        print('목록의 번호 또는 이름을 입력하세요.')
+    selected = select_test(project, 'F6')
+    if selected is None:
+        return 0
     print(f'\n실행: {selected}', flush=True)
     status = build(project)
     if status:
