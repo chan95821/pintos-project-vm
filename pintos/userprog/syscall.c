@@ -8,6 +8,8 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "threads/vaddr.h"
+#include "userprog/process.h"
+#include "threads/init.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -47,10 +49,18 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t syscall_num = f->R.rax;
 	int result;
 	switch (syscall_num){
+		case SYS_HALT:{
+			power_off();
+			break;
+		}
 		case SYS_EXIT:{
 			thread_current()->exit_status = f->R.rdi;
 			thread_exit();
 			break;	
+		}
+		case SYS_WAIT:{
+			f->R.rax = process_wait(f->R.rdi);
+			break;
 		}
 		case SYS_WRITE:{
 			void *  buffer = (void *)f->R.rsi;
