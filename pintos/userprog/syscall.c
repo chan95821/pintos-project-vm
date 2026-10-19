@@ -10,6 +10,8 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "threads/init.h"
+#include "filesys/directory.h"
+
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -27,6 +29,14 @@ void syscall_handler (struct intr_frame *);
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
+
+static bool is_invaild_filename(char * filename);
+
+struct fd_info{
+	struct file *my_file;
+	struct list_elem elem;
+	int fd;
+};
 
 void
 syscall_init (void) {
@@ -63,14 +73,54 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 		case SYS_CREATE: {
-			char *fname = f->R.rdi;
+			char *fname = (char *)f->R.rdi;
 			unsigned int initsize = f->R.rsi;
 			
-			if (fname == NULL  || !is_user_vaddr(fname)|| *fname == NULL ){
-				f->R.rax = -1;
+			if (fname == NULL  || is_kernel_vaddr(fname)) {
+				thread_current()->exit_status = -1;
 				thread_exit();
 			}
+
+			if (is_invaild_filename(fname) || *fname == NULL){
+				f->R.rax = 0;
+				break;
+			}
+			
 			f->R.rax = filesys_create(fname, initsize);
+
+			break;
+		}
+		case SYS_OPEN:{
+			char *fname = (char *)f->R.rdi;
+			
+
+			struct file *file;
+
+			if(fname == NULL || is_kernel_vaddr(fname)) {
+				thread_current()->exit_status = -1;
+				thread_exit();
+			}
+			
+			if ( is_invaild_filename(fname)|| (file = filesys_open(fname)) == NULL) {
+				f->R.rax = -1;
+				break;
+			}
+			
+			struct thread *curr = thread_current();
+			int fd;
+			if (list_empty(&curr->file_list)) {
+				fd = 2;
+			}
+			else {
+				fd = (list_entry(list_begin(&curr->file_list), struct fd_info, elem)->fd)++;
+			}
+
+			struct fd_info *fd_info = malloc(sizeof(struct fd_info));
+			fd_info->fd = fd;
+			fd_info->my_file = file;
+			list_push_front(&curr->file_list, &fd_info->elem);
+			
+			f->R.rax = fd;
 
 			break;
 		}
@@ -79,11 +129,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			int fd = f->R.rdi;
 			uint64_t size = f->R.rdx;
 
-			if(!is_user_vaddr((char *)buffer + size) || buffer == NULL){
+			if (buffer == NULL || is_kernel_vaddr((char *)buffer + size)) {
 				thread_current()->exit_status = -1;
-				thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
+				thread_exit();
 			}
-			if(fd == 1){
+			if (fd == 1) {
 				if(size == 0){
 					f->R.rax = 0;
 				}
@@ -102,4 +152,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			thread_exit ();
 	}
 		
+}
+
+static bool is_invaild_filename(char * filename){
+	size_t size;
+	size = strnlen(filename, NAME_MAX+1);
+	return !((size > 0) && (size <= (NAME_MAX)));
+
 }

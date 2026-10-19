@@ -664,6 +664,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 	t->local_priority = priority;
 	list_init(&(t->held_lock));
+	list_init(&(t->file_list));
 	t->wait_lock = NULL;
 
 	list_init(&t->child_list);
