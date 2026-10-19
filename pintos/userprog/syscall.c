@@ -62,12 +62,24 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			f->R.rax = process_wait(f->R.rdi);
 			break;
 		}
+		case SYS_CREATE: {
+			char *fname = f->R.rdi;
+			unsigned int initsize = f->R.rsi;
+			
+			if (fname == NULL  || !is_user_vaddr(fname)|| *fname == NULL ){
+				f->R.rax = -1;
+				thread_exit();
+			}
+			f->R.rax = filesys_create(fname, initsize);
+
+			break;
+		}
 		case SYS_WRITE:{
 			void *  buffer = (void *)f->R.rsi;
 			int fd = f->R.rdi;
 			uint64_t size = f->R.rdx;
 
-			if( !is_user_vaddr(buffer) || !is_user_vaddr((char *)buffer + size) || buffer == NULL){
+			if(!is_user_vaddr((char *)buffer + size) || buffer == NULL){
 				thread_current()->exit_status = -1;
 				thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
 			}
@@ -85,7 +97,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 		}
-		
 		default:
 			printf ("system call!\n");
 			thread_exit ();
