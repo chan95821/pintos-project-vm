@@ -246,7 +246,7 @@ thread_create (const char *name, int priority,
 	child_info->return_status = -1;
 	t->my_info = child_info;
 
-	list_push_back(&(thread_current()->child_list), &(child_info->child_elem));
+	list_push_front(&(thread_current()->child_list), &(child_info->child_elem));
 
 	#endif
 
