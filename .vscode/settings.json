@@ -2,5 +2,11 @@
     "pintos.projects": ["threads", "userprog", "vm", "ALL"],
     "pintos.project": 1,
     "pintos.testShortcutEnabled": true,
-    "pintos.debugArgs": "-- -q run priority-donate-one"
+    "C_Cpp.default.defines": [
+        "USERPROG",
+        "FILESYS"
+    ],
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/pintos/include"
+    ]
 }

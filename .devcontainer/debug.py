@@ -3,7 +3,7 @@
 import os
 import runpy
 from pathlib import Path
-import shlex
+import json
 import signal
 import socket
 import subprocess
@@ -13,17 +13,21 @@ import time
 
 def main():
     root = Path(__file__).resolve().parent.parent
-    project, arguments = sys.argv[1:]
+    project = sys.argv[1]
     helper = runpy.run_path(str(root / '.vscode/run_shortcut.py'))
     project = helper['resolve_project'](project)
     if project not in {"threads", "userprog", "vm", "filesys"}:
         raise SystemExit("Unknown pintos.project: " + project)
+    state_path = root / 'pintos' / project / 'build' / '.vscode-debug.json'
     try:
-        if not isinstance(arguments, str) or not arguments.strip():
-            raise ValueError("pintos.debugArgs must be a non-empty string")
-        arguments = shlex.split(arguments)
+        state = json.loads(state_path.read_text())
+        arguments = state['arguments']
+        if state['project'] != project or not isinstance(arguments, list) or not arguments:
+            raise ValueError('Invalid debug selection')
+        if not all(isinstance(arg, str) for arg in arguments):
+            raise ValueError('Invalid debug arguments')
     except (OSError, ValueError, KeyError, TypeError) as error:
-        raise SystemExit(f"Invalid pintos.debugArgs: {error}")
+        raise SystemExit(f'F5 테스트 선택 및 빌드를 다시 실행하세요: {error}')
     # Fail rather than accidentally connecting the debugger to another session.
     with socket.socket() as probe:
         try:
