@@ -89,11 +89,6 @@ typedef int tid_t;
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
 
- struct sema_info {
-	struct semaphore sema; 
-	int pid;
-	int refcount;
-};
 
  struct thread {
 	/* Owned by thread.c. */
@@ -106,7 +101,6 @@ typedef int tid_t;
 	int recent_cpu;						/* recent_cpu는 고정소수점으로 저장한다. */
 	int exit_status;							/*종료 상태*/
 
-	struct sema_info *stat;
 	int64_t local_tick; 				/* 깨어날 절대시간 */
 
 	/* Shared between thread. and synch.c. */
