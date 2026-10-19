@@ -66,11 +66,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			char *fname = f->R.rdi;
 			unsigned int initsize = f->R.rsi;
 			
-			if (fname == NULL  || !is_user_vaddr(fname + initsize)|| *fname == NULL ){
+			if (fname == NULL  || !is_user_vaddr(fname)|| *fname == NULL ){
 				f->R.rax = -1;
+				thread_exit();
 			}
 			f->R.rax = filesys_create(fname, initsize);
-			
+
 			break;
 		}
 		case SYS_WRITE:{
