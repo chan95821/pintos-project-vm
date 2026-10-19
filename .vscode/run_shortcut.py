@@ -67,17 +67,21 @@ def run_all():
     return int(any(results.values()))
 
 
-def select_test(project, shortcut):
+def select_test(project, shortcut, allow_all=False):
     tests = test_names(project)
     if not tests:
         raise ValueError(f'No tests found for {project}')
     print(f'\n{shortcut}: {project} 테스트 선택', flush=True)
     for number, test in enumerate(tests, 1):
         print(f'{number:3}. {test.removeprefix("tests/" + project + "/")}')
+    if allow_all:
+        print(f'{len(tests) + 1:3}. 현재 프로젝트 전체 테스트 실행 (all)')
     while True:
         choice = input('\n테스트 번호 또는 이름 (q: 취소): ').strip()
         if choice.lower() == 'q':
             return None
+        if allow_all and (choice.lower() == 'all' or choice == str(len(tests) + 1)):
+            return 'all'
         if choice.isdigit() and 1 <= int(choice) <= len(tests):
             return tests[int(choice) - 1]
         selected = choice if choice.startswith('tests/') else f'tests/{project}/{choice}'
@@ -135,13 +139,16 @@ def main():
         return int(any([build(name) for name in projects]))
     if project == 'ALL':
         return run_all()
-    selected = select_test(project, 'F6')
+    selected = select_test(project, 'F6', allow_all=True)
     if selected is None:
         return 0
-    print(f'\n실행: {selected}', flush=True)
+    label = f'{project} 전체 테스트' if selected == 'all' else selected
+    print(f'\n실행: {label}', flush=True)
     status = build(project)
     if status:
         return status
+    if selected == 'all':
+        return run_make(project, ['check'])
     status = run_make(project, [selected + '.result'])
     result = ROOT / 'pintos' / project / 'build' / (selected + '.result')
     return status or int(not result.exists() or result.read_text().strip() != 'PASS')
