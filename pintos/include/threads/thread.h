@@ -91,7 +91,8 @@ typedef int tid_t;
 
  struct sema_info {
 	struct semaphore sema; 
-	int pid ;
+	int pid;
+	int refcount;
 };
 
  struct thread {

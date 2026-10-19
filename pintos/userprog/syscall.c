@@ -78,8 +78,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_WAIT:{
 			// %rdi == child process id 
 			int pid = f->R.rdi;
-			
-
 		}
 		
 		default:
