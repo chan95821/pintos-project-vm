@@ -11,10 +11,7 @@
                 "${config:pintos.project}"
             ],
             "problemMatcher": "$gcc",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            }
+            "group": "build"
         },
         {
             "label": "Pintos: select and run test",
@@ -40,6 +37,10 @@
             "runOptions": {
                 "instanceLimit": 1,
                 "reevaluateOnRerun": true
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
             }
         },
         {
