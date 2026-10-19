@@ -13,6 +13,7 @@
 #include "intrinsic.h"
 #include "threads/fixed_point.h" // 고정소수점 파일 헤더
 #include "devices/timer.h"
+#include "threads/malloc.h"
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -234,6 +235,20 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+
+	#ifdef USERPROG
+	/*for process wait*/
+	struct wait_info *child_info = malloc(sizeof(struct wait_info));
+	sema_init(&(child_info -> wait), 0);
+	child_info->reference = 2; /*parent + child*/
+	child_info->child_tid = tid;
+	child_info->waited = false;
+	child_info->return_status = -1;
+	t->my_info = child_info;
+
+	list_push_back(&(thread_current()->child_list), &(child_info->child_elem));
+
+	#endif
 
 	if(thread_mlfqs){
 		t->nice = thread_current()->nice;
@@ -642,10 +657,14 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->exit_status = -1;
 	t->magic = THREAD_MAGIC;
 	t->local_priority = priority;
 	list_init(&(t->held_lock));
 	t->wait_lock = NULL;
+
+	list_init(&t->child_list);
+	t->my_info = NULL;
 
 	if(thread_mlfqs){
 		enum intr_level old_level = intr_disable();
