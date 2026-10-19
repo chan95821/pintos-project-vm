@@ -79,6 +79,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			// %rdi == child process id 
 			int pid = f->R.rdi;
 		}
+
+		case SYS_HALT:{
+			power_off();
+		}
 		
 		default:
 			printf ("system call!\n");
