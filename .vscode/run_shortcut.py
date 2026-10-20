@@ -6,18 +6,23 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import select
+import signal
+import termios
+import codecs
+from contextlib import contextmanager
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_names(project):
+def test_names(project, include_all=False):
     # Ask make to expand its own test definitions, including nested test groups.
     makefile = (
         f'include {project}/Make.vars\n'
         'include $(addsuffix /Make.tests,$(TEST_SUBDIRS))\n'
         '.PHONY: vscode-list-tests\n'
         'vscode-list-tests:\n'
-        '\t@echo $(foreach dir,$(TEST_SUBDIRS),$($(dir)_TESTS))\n'
+        '\t@echo $(foreach dir,$(TEST_SUBDIRS),$($(dir)_TESTS) $($(dir)_EXTRA_GRADES))\n'
     )
     result = subprocess.run(
         ['make', '--no-print-directory', '-s', '-f', '-', 'vscode-list-tests'],
@@ -25,7 +30,7 @@ def test_names(project):
         stdout=subprocess.PIPE, check=True,
     )
     return sorted(set(name for name in result.stdout.split()
-                      if name.startswith(f'tests/{project}/')))
+                      if name.startswith('tests/') and (include_all or name.startswith(f'tests/{project}/'))))
 
 
 def resolve_project(value):
@@ -43,24 +48,77 @@ def build(project):
     return subprocess.run(['make', '-C', str(ROOT / 'pintos' / project), '-j8']).returncode
 
 
+class SkipTest(Exception):
+    pass
+
+
+@contextmanager
+def skip_keyboard():
+    """Read Ctrl+E immediately, retaining Ctrl+C's normal interrupt behavior."""
+    if not sys.stdin.isatty():
+        yield None
+        return
+    fd = sys.stdin.fileno()
+    original = termios.tcgetattr(fd)
+    mode = termios.tcgetattr(fd)
+    mode[3] &= ~(termios.ICANON | termios.ECHO)
+    mode[6][termios.VMIN] = 1
+    mode[6][termios.VTIME] = 0
+    try:
+        termios.tcsetattr(fd, termios.TCSANOW, mode)
+        yield fd
+    finally:
+        termios.tcsetattr(fd, termios.TCSANOW, original)
+
+
+def stop_test(process):
+    # The make, shell, Pintos launcher and QEMU share this private process group.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+
+
 def run_make(project, targets):
     env = os.environ.copy()
     env['PATH'] = str(ROOT / 'pintos/utils') + os.pathsep + env.get('PATH', '')
-    command = ['make', '-k', '-C', str(ROOT / 'pintos' / project / 'build'),
+    command = ['make', '-j1', '-k', '-C', str(ROOT / 'pintos' / project / 'build'),
                '-W', 'os.dsk', *targets, 'VERBOSE=1']
-    with subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True) as process:
-        for line in process.stdout:
-            print(re.sub(r'\b(PASS|FAIL)\b', color_result, line,
-                         flags=re.IGNORECASE), end='', flush=True)
-        return process.wait()
+    with skip_keyboard() as keyboard:
+        with subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              start_new_session=True) as process:
+            decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+            try:
+                while True:
+                    readers = [process.stdout]
+                    if keyboard is not None:
+                        readers.append(keyboard)
+                    ready, _, _ = select.select(readers, [], [], 0.2)
+                    if keyboard in ready:
+                        keys = os.read(keyboard, 1024)
+                        if b'\x05' in keys and process.poll() is None:
+                            raise SkipTest()
+                    if process.stdout in ready:
+                        data = os.read(process.stdout.fileno(), 65536)
+                        if not data:
+                            break
+                        print(re.sub(r'\b(PASS|FAIL)\b', color_result,
+                                     decoder.decode(data), flags=re.IGNORECASE),
+                              end='', flush=True)
+                print(decoder.decode(b'', final=True), end='', flush=True)
+                return process.wait()
+            finally:
+                # Also clean up children if make exited before its descendants.
+                stop_test(process)
 
 
 def run_all():
     results = {}
     for project in ('threads', 'userprog', 'vm'):
         print(f'\nALL: {project} 전체 테스트 실행', flush=True)
-        results[project] = build(project) or run_make(project, ['check'])
+        results[project] = build(project) or run_range(project, test_names(project, include_all=True))
     print('\n전체 실행 결과:', flush=True)
     for project, status in results.items():
         print(f'{project}: {"PASS" if status == 0 else "FAIL (테스트 또는 빌드 오류)"}')
@@ -124,10 +182,28 @@ def debug_arguments(project, selected):
     return arguments
 
 
+def update_results(project, test, verdict):
+    """Preserve other results; persist this run even if the user later cancels."""
+    path = ROOT / 'pintos' / project / 'build' / 'results'
+    entries = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                entries[parts[1]] = parts[0]
+    # Keep the format expected by Pintos make-grade (errors count as failures).
+    entries[test] = 'pass' if verdict == 'PASS' else 'FAIL'
+    temporary = path.with_name('results.tmp')
+    temporary.write_text(''.join(f'{entries[name]} {name}\n' for name in sorted(entries)))
+    temporary.replace(path)
+
+
 def run_range(project, tests):
     results = {'PASS': [], 'FAIL': [], 'ERROR': []}
-    for test in tests:
-        print(f'\n실행: {test}', flush=True)
+    print('Ctrl+E: 현재 테스트 FAIL 처리 후 다음으로 / Ctrl+C: 전체 중단', flush=True)
+    for number, test in enumerate(tests, 1):
+        print(f'\n실행 [{number}/{len(tests)}]: {test}', flush=True)
+        verdict = 'ERROR'
         result = ROOT / 'pintos' / project / 'build' / (test + '.result')
         try:
             # Never mistake an earlier run's verdict for this run's result.
@@ -140,13 +216,24 @@ def run_range(project, tests):
             elif status == 0 and verdict == 'PASS':
                 results['PASS'].append(test)
             else:
+                verdict = 'ERROR'
                 results['ERROR'].append(test)
                 print(f'ERROR: {test} (종료 코드 {status}, 유효한 판정 결과 없음)')
+        except SkipTest:
+            verdict = 'FAIL'
+            result.write_text('FAIL\nSkipped by user (Ctrl+E).\n')
+            results['FAIL'].append(test)
+            print(f'FAIL: {test} — 사용자 건너뛰기', flush=True)
         except OSError as error:
+            verdict = 'ERROR'
             results['ERROR'].append(test)
             print(f'ERROR: {test}: {error}')
+        if verdict == 'ERROR':
+            result.parent.mkdir(parents=True, exist_ok=True)
+            result.write_text('ERROR\nTest execution or result collection failed.\n')
+        update_results(project, test, verdict)
 
-    print(f'\n구간 실행 결과: 총 {len(tests)}개')
+    print(f'\n실행 결과: 총 {len(tests)}개')
     print(' | '.join(f'{verdict}: {len(names)}개'
                      for verdict, names in results.items()))
     for verdict in ('FAIL', 'ERROR'):
@@ -198,12 +285,10 @@ def main():
     if status:
         return status
     if selected == 'all':
-        return run_make(project, ['check'])
+        return run_range(project, test_names(project, include_all=True))
     if isinstance(selected, list):
         return run_range(project, selected)
-    status = run_make(project, [selected + '.result'])
-    result = ROOT / 'pintos' / project / 'build' / (selected + '.result')
-    return status or int(not result.exists() or result.read_text().strip() != 'PASS')
+    return run_range(project, [selected])
 
 
 def color_result(match):
