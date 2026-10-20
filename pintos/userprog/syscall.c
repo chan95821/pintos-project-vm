@@ -16,6 +16,7 @@
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
 #include "devices/input.h"
+#include "threads/palloc.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -34,12 +35,14 @@ void syscall_handler (struct intr_frame *);
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
+#define PAGE_SIZE 4096
 
 static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 
 static void sys_halt (struct intr_frame *f);
 static void sys_exit (struct intr_frame *f);
+static void sys_exec (struct intr_frame *f);
 static void sys_wait (struct intr_frame *f);
 static void sys_create (struct intr_frame *f);
 static void sys_open (struct intr_frame *f);
@@ -83,6 +86,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_EXIT:
 			sys_exit(f);
 			break;
+		case SYS_EXEC:
+			sys_exec(f);
+			break;
 		case SYS_WAIT:
 			sys_wait(f);
 			break;
@@ -121,6 +127,29 @@ sys_exit (struct intr_frame *f) {
 	thread_current()->exit_status = f->R.rdi;
 	thread_exit();
 }
+
+static void 
+sys_exec (struct intr_frame *f) {
+	char *fname = (void *)f->R.rdi;
+	char *buffer = palloc_get_page(0);
+
+	if (buffer == NULL){
+		f->R.rax = -1;
+		return;
+	}		
+
+	if ((strlcpy(buffer, (const char *)fname, PAGE_SIZE+1)) == PAGE_SIZE+1){
+		f->R.rax = -1;
+		return;
+	}
+	
+	int reslt = process_exec(buffer);
+	if (reslt == -1){
+		f->R.rax = -1;
+		return;
+	}
+}
+
 
 static void
 sys_wait (struct intr_frame *f) {
