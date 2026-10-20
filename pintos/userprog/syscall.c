@@ -143,7 +143,9 @@ sys_exec (struct intr_frame *f) {
 		return;
 	}
 	
+	lock_acquire(&file_lock);
 	int reslt = process_exec(buffer);
+	lock_release(&file_lock);
 	if (reslt == -1){
 		f->R.rax = -1;
 		return;
