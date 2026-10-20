@@ -24,11 +24,12 @@
 #include "vm/vm.h"
 #endif
 
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
-static bool get_first_string_cpy(const char * str, char *buffer, int size);
+
 
 /* General process initializer for initd and other process. */
 static void
@@ -167,7 +168,7 @@ error:
 }
 
 /*\0 까지 포함한 버퍼의 크기를 넣어야함*/
-static bool get_first_string_cpy(const char * str, char *buffer, int size){
+bool get_first_string_cpy(const char * str, char *buffer, int size){
 	int total = 1;
 	while(*str != ' ' && *str != '\0'){
 		if((total++) >= size ){
