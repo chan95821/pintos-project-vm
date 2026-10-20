@@ -19,3 +19,4 @@ test_main (void)
   read (INT_MIN, &buf, 1);
   read (INT_MAX, &buf, 1);
 }
+ 
