@@ -40,7 +40,7 @@ def resolve_project(value):
 
 
 def build(project):
-    return subprocess.run(['make', '-C', str(ROOT / 'pintos' / project), '-j4']).returncode
+    return subprocess.run(['make', '-C', str(ROOT / 'pintos' / project), '-j8']).returncode
 
 
 def run_make(project, targets):
