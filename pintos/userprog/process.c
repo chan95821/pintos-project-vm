@@ -7,6 +7,7 @@
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -17,6 +18,7 @@
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
 
@@ -24,11 +26,18 @@
 #include "vm/vm.h"
 #endif
 
+#define PAGE_SIZE 4096
 
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+
+struct fork_args {
+	struct thread *curr;
+	struct intr_frame *if_;
+	struct semaphore sema;
+};
 
 
 /* General process initializer for initd and other process. */
@@ -85,8 +94,20 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct fork_args *args = malloc(sizeof(struct fork_args));
+	if (args == NULL) {
+		return TID_ERROR;
+	}
+	args->curr = thread_current();
+	args->if_ = if_;
+
+	sema_init(&args->sema, 0);
+	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
+	sema_down(&args->sema);
+
+	free(args);
+
+	return tid;
 }
 
 #ifndef VM
@@ -101,21 +122,35 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if (is_kernel_vaddr(va)) {
+		return true;
+	} 
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if (parent_page == NULL) {
+		return false;
+	}
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER);
+	if (newpage == NULL) {
+		return false;
+	}
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PAGE_SIZE);
+	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		palloc_free_page(newpage);
+		return false;
 	}
 	return true;
 }
@@ -128,14 +163,14 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = ((struct fork_args *) aux)->curr;
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = ((struct fork_args *)aux)->if_;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	if_.R.rax = 0;
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -152,18 +187,37 @@ __do_fork (void *aux) {
 		goto error;
 #endif
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
+	/* 자식 스레드의 파일 리스트에 fd_info elem 복제 */
+	struct list* p_file_list = &parent->file_list;
+	for (struct list_elem *p_curr_elem = list_begin(p_file_list);
+	    p_curr_elem != list_end(p_file_list); 
+		p_curr_elem = list_next(p_curr_elem)) {
+		
+		struct fd_info *info = malloc(sizeof(struct fd_info));
+		if (info == NULL) {
+			succ = false;
+			break;
+		}
+		
+		memcpy(info, list_entry(p_curr_elem, struct fd_info, elem), sizeof(struct fd_info));
 
-	process_init ();
+		lock_acquire(&file_lock);
+		if ((info->my_file = file_duplicate(info->my_file)) == NULL) {
+			succ = false;
+			lock_release(&file_lock);
+			break;
+		}
+		lock_release(&file_lock);
+
+		list_push_back(&current->file_list, &info->elem);
+	}
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
+		sema_up(&((struct fork_args *)aux)->sema);
 		do_iret (&if_);
 error:
+	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
 }
 
