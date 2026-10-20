@@ -200,7 +200,9 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
+	lock_acquire(&file_lock);
 	success = load (file_name, &_if);
+	lock_release(&file_lock);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
