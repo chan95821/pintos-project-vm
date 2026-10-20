@@ -294,7 +294,7 @@ sys_write (struct intr_frame *f) {
 	int fd = f->R.rdi;
 	uint64_t size = f->R.rdx;
 
-	if (buffer == NULL || is_kernel_vaddr((char *)buffer + size)) {
+	if (buffer == NULL || is_kernel_vaddr(buffer + size)) {
 		thread_current()->exit_status = -1;
 		thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
 	}
@@ -303,14 +303,21 @@ sys_write (struct intr_frame *f) {
 			f->R.rax = 0;
 		}
 		else{
-			lock_acquire(&file_lock);
+			//putbuf는 자기가 락을 따로 잡음
 			putbuf(buffer, size);
 			f->R.rax = size;
-			lock_release(&file_lock);
 		}
 	}
 	else{
-		f->R.rax = -1; // write에 실패한 경우 (fd를 찾을 수 없음)
+		struct fd_info *fd_info = seek_fd_info(thread_current(), fd);
+		if(fd_info == NULL){
+			f->R.rax = -1;
+			return;
+		}
+		lock_acquire(&file_lock);
+		f->R.rax = file_write(fd_info->my_file, buffer, size);
+		lock_release(&file_lock);
+		
 	}
 }
 
