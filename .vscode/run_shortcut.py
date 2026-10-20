@@ -67,7 +67,7 @@ def run_all():
     return int(any(results.values()))
 
 
-def select_test(project, shortcut, allow_all=False):
+def select_test(project, shortcut, allow_all=False, allow_range=False):
     tests = test_names(project)
     if not tests:
         raise ValueError(f'No tests found for {project}')
@@ -76,12 +76,27 @@ def select_test(project, shortcut, allow_all=False):
         print(f'{number:3}. {test.removeprefix("tests/" + project + "/")}')
     if allow_all:
         print(f'{len(tests) + 1:3}. 현재 프로젝트 전체 테스트 실행 (all)')
+    prompt = '\n테스트 번호 또는 이름'
+    if allow_range:
+        prompt += ', 범위 (예: 1..7)'
+    prompt += ' (q: 취소): '
     while True:
-        choice = input('\n테스트 번호 또는 이름 (q: 취소): ').strip()
+        mode = '<<디버그 모드>>' if shortcut == 'F5' else '<<실행 모드>>'
+        print(f'\n======= {mode} =======')
+        choice = input(prompt).strip()
         if choice.lower() == 'q':
             return None
         if allow_all and (choice.lower() == 'all' or choice == str(len(tests) + 1)):
             return 'all'
+        if allow_range and '..' in choice:
+            match = re.fullmatch(r'(\d+)\s*\.\.\s*(\d+)', choice)
+            if match:
+                start, end = map(int, match.groups())
+                if 1 <= start <= end <= len(tests):
+                    return tests[start - 1:end]
+            print(f'범위는 1..{len(tests)} 안에서 시작 번호 <= 끝 번호로 입력하세요. '
+                  '전체 실행 항목은 범위에 포함할 수 없습니다.')
+            continue
         if choice.isdigit() and 1 <= int(choice) <= len(tests):
             return tests[int(choice) - 1]
         selected = choice if choice.startswith('tests/') else f'tests/{project}/{choice}'
@@ -107,6 +122,39 @@ def debug_arguments(project, selected):
     index = arguments.index('-T')
     del arguments[index:index + 2]
     return arguments
+
+
+def run_range(project, tests):
+    results = {'PASS': [], 'FAIL': [], 'ERROR': []}
+    for test in tests:
+        print(f'\n실행: {test}', flush=True)
+        result = ROOT / 'pintos' / project / 'build' / (test + '.result')
+        try:
+            # Never mistake an earlier run's verdict for this run's result.
+            result.unlink(missing_ok=True)
+            status = run_make(project, [test + '.result'])
+            lines = result.read_text().splitlines() if result.exists() else []
+            verdict = lines[0].strip() if lines else ''
+            if verdict == 'FAIL':
+                results['FAIL'].append(test)
+            elif status == 0 and verdict == 'PASS':
+                results['PASS'].append(test)
+            else:
+                results['ERROR'].append(test)
+                print(f'ERROR: {test} (종료 코드 {status}, 유효한 판정 결과 없음)')
+        except OSError as error:
+            results['ERROR'].append(test)
+            print(f'ERROR: {test}: {error}')
+
+    print(f'\n구간 실행 결과: 총 {len(tests)}개')
+    print(' | '.join(f'{verdict}: {len(names)}개'
+                     for verdict, names in results.items()))
+    for verdict in ('FAIL', 'ERROR'):
+        if results[verdict]:
+            print(f'\n{verdict} 테스트:')
+            for test in results[verdict]:
+                print(f'  - {test}')
+    return int(bool(results['FAIL'] or results['ERROR']))
 
 
 def main():
@@ -139,16 +187,20 @@ def main():
         return int(any([build(name) for name in projects]))
     if project == 'ALL':
         return run_all()
-    selected = select_test(project, 'F6', allow_all=True)
+    selected = select_test(project, 'F6', allow_all=True, allow_range=True)
     if selected is None:
         return 0
     label = f'{project} 전체 테스트' if selected == 'all' else selected
+    if isinstance(selected, list):
+        label = f'{len(selected)}개 테스트: ' + ', '.join(selected)
     print(f'\n실행: {label}', flush=True)
     status = build(project)
     if status:
         return status
     if selected == 'all':
         return run_make(project, ['check'])
+    if isinstance(selected, list):
+        return run_range(project, selected)
     status = run_make(project, [selected + '.result'])
     result = ROOT / 'pintos' / project / 'build' / (selected + '.result')
     return status or int(not result.exists() or result.read_text().strip() != 'PASS')
