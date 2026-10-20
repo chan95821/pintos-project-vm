@@ -33,6 +33,13 @@ void syscall_handler (struct intr_frame *);
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
 static bool is_invaild_filename(char * filename);
+static void sys_halt (struct intr_frame *f);
+static void sys_exit (struct intr_frame *f);
+static void sys_wait (struct intr_frame *f);
+static void sys_create (struct intr_frame *f);
+static void sys_open (struct intr_frame *f);
+static void sys_write (struct intr_frame *f);
+static void sys_close (struct intr_frame *f);
 
 struct fd_info{
 	struct file *my_file;
@@ -61,124 +68,148 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t syscall_num = f->R.rax;
 	int result;
 	switch (syscall_num){
-		case SYS_HALT:{
-			power_off();
+		case SYS_HALT:
+			sys_halt(f);
 			break;
-		}
-		case SYS_EXIT:{
-			thread_current()->exit_status = f->R.rdi;
-			thread_exit();
-			break;	
-		}
-		case SYS_WAIT:{
-			f->R.rax = process_wait(f->R.rdi);
+		case SYS_EXIT:
+			sys_exit(f);
 			break;
-		}
-		case SYS_CREATE: {
-			char *fname = (char *)f->R.rdi;
-			unsigned int initsize = f->R.rsi;
-			
-			if (fname == NULL  || is_kernel_vaddr(fname)) {
-				thread_current()->exit_status = -1;
-				thread_exit();
-			}
-
-			if (is_invaild_filename(fname) || *fname == NULL){
-				f->R.rax = 0;
-				break;
-			}
-			
-			f->R.rax = filesys_create(fname, initsize);
-
+		case SYS_WAIT:
+			sys_wait(f);
 			break;
-		}
-		case SYS_OPEN:{
-			char *fname = (char *)f->R.rdi;
-			
-
-			struct file *file;
-
-			if(fname == NULL || is_kernel_vaddr(fname)) {
-				thread_current()->exit_status = -1;
-				thread_exit();
-			}
-			
-			if ( is_invaild_filename(fname)|| (file = filesys_open(fname)) == NULL) {
-				f->R.rax = -1;
-				break;
-			}
-			
-			struct thread *curr = thread_current();
-			int fd;
-			if (list_empty(&curr->file_list)) {
-				fd = 2;
-			}
-			else {
-				fd = (list_entry(list_begin(&curr->file_list), struct fd_info, elem)->fd) + 1;
-			}
-
-			struct fd_info *fd_info = malloc(sizeof(struct fd_info));
-			fd_info->fd = fd;
-			fd_info->my_file = file;
-			list_push_front(&curr->file_list, &fd_info->elem);
-			
-			f->R.rax = fd;
-
+		case SYS_CREATE:
+			sys_create(f);
 			break;
-		}
-		case SYS_WRITE:{
-			void *  buffer = (void *)f->R.rsi;
-			int fd = f->R.rdi;
-			uint64_t size = f->R.rdx;
-
-			if (buffer == NULL || is_kernel_vaddr((char *)buffer + size)) {
-				thread_current()->exit_status = -1;
-				thread_exit();
-			}
-			if (fd == 1) {
-				if(size == 0){
-					f->R.rax = 0;
-				}
-				else{
-					putbuf(buffer, size);
-					f->R.rax = size;
-				}
-			}
-			else{
-				f->R.rax = -1; // write에 실패한 경우 (fd를 찾을 수 없음)
-			}
+		case SYS_OPEN:
+			sys_open(f);
 			break;
-		}
-		case SYS_CLOSE:{
-			int fd = f->R.rdi;
-
-			if ( fd == NULL ) {
-				thread_current()->exit_status = -1;
-				thread_exit();
-			}
-
-			struct thread *curr = thread_current();
-			struct list_elem *ptr;
-			struct list *list = &curr->file_list;
-
-			for(ptr = list_begin(list); ptr != list_end(list); ptr = list_next(ptr)){
-				if(list_entry(ptr, struct fd_info, elem)-> fd == fd){
-					struct fd_info *fd_info = list_entry(ptr, struct fd_info, elem);
-					list_remove(ptr);
-					file_close(fd_info->my_file);
-					free(fd_info);
-					break;
-				}
-			}
+		case SYS_WRITE:
+			sys_write(f);
 			break;
-
-
-		}
+		case SYS_CLOSE:
+			sys_close(f);
+			break;
 		default:
 			printf ("system call!\n");
 			thread_exit ();
 	}
 		
+}
+
+static void
+sys_halt (struct intr_frame *f UNUSED) {
+	power_off();
+}
+
+static void
+sys_exit (struct intr_frame *f) {
+	thread_current()->exit_status = f->R.rdi;
+	thread_exit();
+}
+
+static void
+sys_wait (struct intr_frame *f) {
+	f->R.rax = process_wait(f->R.rdi);
+}
+
+static void
+sys_create (struct intr_frame *f) {
+	char *fname = (char *)f->R.rdi;
+	unsigned int initsize = f->R.rsi;
+	
+	if (fname == NULL  || is_kernel_vaddr(fname)) {
+		thread_current()->exit_status = -1;
+		thread_exit();
+	}
+
+	if (is_invaild_filename(fname) || *fname == NULL){
+		f->R.rax = 0;
+		return;
+	}
+	
+	f->R.rax = filesys_create(fname, initsize);
+}
+
+static void
+sys_open (struct intr_frame *f) {
+	char *fname = (char *)f->R.rdi;
+	
+
+	struct file *file;
+
+	if(fname == NULL || is_kernel_vaddr(fname)) {
+		thread_current()->exit_status = -1;
+		thread_exit();
+	}
+	
+	if ( is_invaild_filename(fname)|| (file = filesys_open(fname)) == NULL) {
+		f->R.rax = -1;
+		return;
+	}
+	
+	struct thread *curr = thread_current();
+	int fd;
+	if (list_empty(&curr->file_list)) {
+		fd = 2;
+	}
+	else {
+		fd = (list_entry(list_begin(&curr->file_list), struct fd_info, elem)->fd) + 1;
+	}
+
+	struct fd_info *fd_info = malloc(sizeof(struct fd_info));
+	fd_info->fd = fd;
+	fd_info->my_file = file;
+	list_push_front(&curr->file_list, &fd_info->elem);
+	
+	f->R.rax = fd;
+}
+
+static void
+sys_write (struct intr_frame *f) {
+	void *  buffer = (void *)f->R.rsi;
+	int fd = f->R.rdi;
+	uint64_t size = f->R.rdx;
+
+	if (buffer == NULL || is_kernel_vaddr((char *)buffer + size)) {
+		thread_current()->exit_status = -1;
+		thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
+	}
+	if (fd == 1) {
+		if(size == 0){
+			f->R.rax = 0;
+		}
+		else{
+			putbuf(buffer, size);
+			f->R.rax = size;
+		}
+	}
+	else{
+		f->R.rax = -1; // write에 실패한 경우 (fd를 찾을 수 없음)
+	}
+}
+
+static void
+sys_close (struct intr_frame *f) {
+	int fd = f->R.rdi;
+
+	if ( fd == NULL ) {
+		thread_current()->exit_status = -1;
+		thread_exit();
+	}
+
+	struct thread *curr = thread_current();
+	struct list_elem *ptr;
+	struct list *list = &curr->file_list;
+
+	for(ptr = list_begin(list); ptr != list_end(list); ptr = list_next(ptr)){
+		if(list_entry(ptr, struct fd_info, elem)-> fd == fd){
+			struct fd_info *fd_info = list_entry(ptr, struct fd_info, elem);
+			list_remove(ptr);
+			file_close(fd_info->my_file);
+			free(fd_info);
+			break;
+		}
+	}
 }
 
 static bool is_invaild_filename(char * filename){
