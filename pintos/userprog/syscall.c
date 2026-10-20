@@ -42,6 +42,7 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 
 static void sys_halt (struct intr_frame *f);
 static void sys_exit (struct intr_frame *f);
+static void sys_fork (struct intr_frame *f);
 static void sys_exec (struct intr_frame *f);
 static void sys_wait (struct intr_frame *f);
 static void sys_create (struct intr_frame *f);
@@ -50,13 +51,6 @@ static void sys_read (struct intr_frame *f);
 static void sys_write (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
 static void sys_filesize (struct intr_frame *f);
-
-
-struct fd_info{
-	struct file *my_file;
-	struct list_elem elem;
-	int fd;
-};
 
 void
 syscall_init (void) {
@@ -85,6 +79,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_EXIT:
 			sys_exit(f);
+			break;
+		case SYS_FORK:
+			sys_fork(f);
 			break;
 		case SYS_EXEC:
 			sys_exec(f);
@@ -129,6 +126,24 @@ sys_exit (struct intr_frame *f) {
 }
 
 static void 
+sys_fork (struct intr_frame *f) {
+	char *fname = (void *)f->R.rdi;	
+	
+	if(fname == NULL || is_kernel_vaddr(fname)) {
+		thread_current()->exit_status = -1;
+		thread_exit();
+	}
+	
+	if (is_invaild_filename(fname)) {
+		f->R.rax = -1;
+		return;
+	}
+
+	tid_t child_pid = process_fork(fname, f);
+	f->R.rax = child_pid;
+}
+
+static void 
 sys_exec (struct intr_frame *f) {
 	char *fname = (void *)f->R.rdi;
 	char *buffer = palloc_get_page(0);
@@ -142,10 +157,9 @@ sys_exec (struct intr_frame *f) {
 		f->R.rax = -1;
 		return;
 	}
-	
-	lock_acquire(&file_lock);
+
 	int reslt = process_exec(buffer);
-	lock_release(&file_lock);
+	
 	if (reslt == -1){
 		f->R.rax = -1;
 		return;
