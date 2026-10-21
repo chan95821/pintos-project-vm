@@ -194,17 +194,24 @@ __do_fork (void *aux) {
 		p_curr_elem = list_next(p_curr_elem)) {
 		
 		struct fd_info *info = malloc(sizeof(struct fd_info));
-		if (info == NULL) {
+		struct file_info *file_info = malloc(sizeof(struct file_info));
+
+		if (info == NULL || file_info == NULL) {
 			succ = false;
 			break;
 		}
 		
-		memcpy(info, list_entry(p_curr_elem, struct fd_info, elem), sizeof(struct fd_info));
+		struct fd_info *parent_fd_info = list_entry(p_curr_elem, struct fd_info, elem);
+		memcpy(info, parent_fd_info, sizeof(struct fd_info));
+		info->file_info = file_info;
+		file_info->reference = 1;
 
 		lock_acquire(&file_lock);
-		if ((info->my_file = file_duplicate(info->my_file)) == NULL) {
+		if ((info->file_info->my_file = file_duplicate(parent_fd_info->file_info->my_file)) == NULL) {
 			succ = false;
 			lock_release(&file_lock);
+			free(file_info);
+			free(info);
 			break;
 		}
 		lock_release(&file_lock);
@@ -213,9 +220,10 @@ __do_fork (void *aux) {
 	}
 
 	/* Finally, switch to the newly created process. */
-	if (succ)
+	if (succ) {
 		sema_up(&((struct fork_args *)aux)->sema);
 		do_iret (&if_);
+	}
 error:
 	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
@@ -340,6 +348,7 @@ process_exit (void) {
 	enum intr_level old_level = intr_disable();
 	struct list *child_list = &(curr->child_list);
 	struct list_elem *ptr;
+
 	for(ptr = list_begin(child_list); ptr != list_end(child_list);){
 		struct wait_info *child = list_entry(ptr, struct wait_info, child_elem);
 		child->reference--;

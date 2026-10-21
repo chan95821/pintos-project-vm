@@ -48,13 +48,13 @@ static void sys_wait (struct intr_frame *f);
 static void sys_create (struct intr_frame *f);
 static void sys_remove (struct intr_frame *f);
 static void sys_open (struct intr_frame *f);
+static void sys_filesize (struct intr_frame *f);
 static void sys_read (struct intr_frame *f);
-static void sys_seek (struct intr_frame *f);
 static void sys_write (struct intr_frame *f);
-
+static void sys_seek (struct intr_frame *f);
 static void sys_tell (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
-static void sys_filesize (struct intr_frame *f);
+static void sys_dup2(struct intr_frame *f); 
 
 void
 syscall_init (void) {
@@ -113,12 +113,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_SEEK:
 			sys_seek(f);
-
+			break;
 		case SYS_TELL:
 			sys_tell(f);
 			break;
 		case SYS_CLOSE:
 			sys_close(f);
+			break;
+		case SYS_DUP2:
+			sys_dup2(f);
 			break;
 		default:
 			printf ("system call!\n");
@@ -200,7 +203,9 @@ sys_create (struct intr_frame *f) {
 		return;
 	}
 	
+	lock_acquire(&file_lock);
 	f->R.rax = filesys_create(fname, initsize);
+	lock_release(&file_lock);
 }
 
 static void 
@@ -234,10 +239,13 @@ sys_open (struct intr_frame *f) {
 		thread_exit();
 	}
 	
+	lock_acquire(&file_lock);
 	if ( is_invaild_filename(fname)|| (file = filesys_open(fname)) == NULL) {
 		f->R.rax = -1;
+		lock_release(&file_lock);            
 		return;
 	}
+	lock_release(&file_lock);
 	
 	struct thread *curr = thread_current();
 	int fd;
@@ -249,8 +257,25 @@ sys_open (struct intr_frame *f) {
 	}
 
 	struct fd_info *fd_info = malloc(sizeof(struct fd_info));
+	struct file_info *file_info = malloc(sizeof(struct file_info));
+
+	if (fd_info == NULL) {
+		free(file_info);
+		f->R.rax = -1;
+		return;
+	}
+
+	if (file_info == NULL) {
+		free(fd_info);
+		f->R.rax = -1;
+		return;
+	}
+
 	fd_info->fd = fd;
-	fd_info->my_file = file;
+	file_info->reference = 1;
+	fd_info->file_info = file_info;
+	fd_info->file_info->my_file = file;
+	
 	list_push_front(&curr->file_list, &fd_info->elem);
 	
 	f->R.rax = fd;
@@ -267,7 +292,7 @@ sys_filesize(struct intr_frame *f) {
 	}
 
 	lock_acquire(&file_lock);
-	f->R.rax = file_length(fd_info->my_file);
+	f->R.rax = file_length(fd_info->file_info->my_file);
 	lock_release(&file_lock);
 
 }
@@ -313,31 +338,9 @@ sys_read (struct intr_frame *f) {
 	}
 
 	lock_acquire(&file_lock);
-	f->R.rax = file_read(fd_info->my_file, buffer, size);
+	f->R.rax = file_read(fd_info->file_info->my_file, buffer, size);
 	lock_release(&file_lock);
 
-
-
-}
-
-static void
-sys_seek (struct intr_frame *f) {
-	int fd = f->R.rdi;
-	unsigned position = f->R.rsi;
-
-	if(position > INT32_MAX){
-		return;
-	}
-
-	struct fd_info *fd_info;
-
-	if ((fd_info = seek_fd_info(thread_current() , fd)) == NULL) {
-		return;
-	}
-
-	lock_acquire(&file_lock);
-	file_seek(fd_info->my_file, position);
-	lock_release(&file_lock);
 }
 
 static void
@@ -367,10 +370,30 @@ sys_write (struct intr_frame *f) {
 			return;
 		}
 		lock_acquire(&file_lock);
-		f->R.rax = file_write(fd_info->my_file, buffer, size);
+		f->R.rax = file_write(fd_info->file_info->my_file, buffer, size);
 		lock_release(&file_lock);
 		
 	}
+}
+
+static void
+sys_seek (struct intr_frame *f) {
+	int fd = f->R.rdi;
+	unsigned position = f->R.rsi;
+
+	if(position > INT32_MAX){
+		return;
+	}
+
+	struct fd_info *fd_info;
+
+	if ((fd_info = seek_fd_info(thread_current() , fd)) == NULL) {
+		return;
+	}
+
+	lock_acquire(&file_lock);
+	file_seek(fd_info->file_info->my_file, position);
+	lock_release(&file_lock);
 }
 
 static void 
@@ -384,7 +407,7 @@ sys_tell (struct intr_frame *f) {
 	}
 	
 	lock_acquire(&file_lock);
-	f->R.rax = file_tell(fd_info->my_file);
+	f->R.rax = file_tell(fd_info->file_info->my_file);
 	lock_release(&file_lock);
 	
 }
@@ -393,10 +416,10 @@ static void
 sys_close (struct intr_frame *f) {
 	int fd = f->R.rdi;
 
-	if ( fd == NULL ) {
-		thread_current()->exit_status = -1;
-		thread_exit();
-	}
+	// if ( fd == NULL ) {
+	// 	thread_current()->exit_status = -1;
+	// 	thread_exit();
+	// } dup2 를 위해 지움
 
 	struct thread *curr = thread_current();
 	struct list_elem *ptr;
@@ -405,12 +428,66 @@ sys_close (struct intr_frame *f) {
 	for(ptr = list_begin(list); ptr != list_end(list); ptr = list_next(ptr)){
 		if(list_entry(ptr, struct fd_info, elem)-> fd == fd){
 			struct fd_info *fd_info = list_entry(ptr, struct fd_info, elem);
+			if (fd_info->file_info->reference != 0){
+				fd_info->file_info->reference--;
+			}
+			if (fd_info->file_info->reference == 0) {
+				lock_acquire(&file_lock);
+				file_close(fd_info->file_info->my_file);
+				lock_release(&file_lock);
+				free(fd_info->file_info);
+			}
 			list_remove(ptr);
-			file_close(fd_info->my_file);
 			free(fd_info);
 			break;
 		}
 	}
+}
+
+static void
+sys_dup2(struct intr_frame *f) {
+	int oldfd = f->R.rdi;
+	int newfd = f->R.rsi;
+
+	struct fd_info *oldfd_info;
+	if ((oldfd_info = seek_fd_info(thread_current(), oldfd)) == NULL) {
+		f->R.rax = -1;
+		return;
+	}
+
+	if (oldfd == newfd) {
+		f->R.rax = newfd;
+		return;
+	}
+
+	struct fd_info *newfd_info;
+	if ((newfd_info = seek_fd_info(thread_current(), newfd)) != NULL) {
+		newfd_info->file_info->reference--;
+		if (newfd_info->file_info->reference == 0) {
+			lock_acquire(&file_lock);
+			file_close(newfd_info->file_info->my_file);
+			lock_release(&file_lock);
+			free(newfd_info->file_info);
+		}
+
+		newfd_info->file_info = oldfd_info->file_info;
+		newfd_info->file_info->reference++;
+	}
+	else{
+		if ((newfd_info = malloc(sizeof(struct fd_info))) == NULL){
+			f->R.rax = -1;
+			return;
+		}
+
+		newfd_info->file_info = oldfd_info->file_info;
+		newfd_info->fd = newfd;
+		newfd_info->file_info->reference++;
+
+		list_push_back(&thread_current()->file_list, &newfd_info->elem);
+	}
+	
+	f->R.rax = newfd;
+
 }
 
 static bool is_invaild_filename(char * filename){
