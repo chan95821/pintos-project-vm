@@ -49,6 +49,8 @@ static void sys_create (struct intr_frame *f);
 static void sys_open (struct intr_frame *f);
 static void sys_read (struct intr_frame *f);
 static void sys_write (struct intr_frame *f);
+
+static void sys_tell (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
 static void sys_filesize (struct intr_frame *f);
 
@@ -103,6 +105,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_WRITE:
 			sys_write(f);
+			break;
+
+		case SYS_TELL:
+			sys_tell(f);
 			break;
 		case SYS_CLOSE:
 			sys_close(f);
@@ -319,6 +325,22 @@ sys_write (struct intr_frame *f) {
 		lock_release(&file_lock);
 		
 	}
+}
+
+static void 
+sys_tell (struct intr_frame *f) {
+	int fd = f->R.rdi;
+	struct fd_info *fd_info = seek_fd_info(thread_current(), fd);
+
+	if (fd_info == NULL){
+		f->R.rax = -1;
+		return;
+	}
+	
+	lock_acquire(&file_lock);
+	f->R.rax = file_tell(fd_info->my_file);
+	lock_release(&file_lock);
+	
 }
 
 static void
