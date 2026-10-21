@@ -37,6 +37,7 @@ struct fork_args {
 	struct thread *curr;
 	struct intr_frame *if_;
 	struct semaphore sema;
+	bool success;
 };
 
 
@@ -100,11 +101,16 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	}
 	args->curr = thread_current();
 	args->if_ = if_;
+	args->success = true;
 
 	sema_init(&args->sema, 0);
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
-	sema_down(&args->sema);
-
+	if (tid != TID_ERROR) {
+		sema_down(&args->sema);
+	}
+	
+	tid = args->success ? tid : TID_ERROR;
+	
 	free(args);
 
 	return tid;
@@ -204,6 +210,7 @@ __do_fork (void *aux) {
 		lock_acquire(&file_lock);
 		if ((info->my_file = file_duplicate(info->my_file)) == NULL) {
 			succ = false;
+			free(info);
 			lock_release(&file_lock);
 			break;
 		}
@@ -213,10 +220,12 @@ __do_fork (void *aux) {
 	}
 
 	/* Finally, switch to the newly created process. */
-	if (succ)
+	if (succ) {
 		sema_up(&((struct fork_args *)aux)->sema);
 		do_iret (&if_);
+	}
 error:
+	((struct fork_args *)aux)->success = false;
 	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
 }
@@ -339,7 +348,9 @@ process_exit (void) {
 
 	enum intr_level old_level = intr_disable();
 	struct list *child_list = &(curr->child_list);
-	struct list_elem *ptr;
+	struct list_elem *ptr; /* child */
+
+	/* child 순회하며 wait_info 해제  */
 	for(ptr = list_begin(child_list); ptr != list_end(child_list);){
 		struct wait_info *child = list_entry(ptr, struct wait_info, child_elem);
 		child->reference--;
@@ -351,6 +362,16 @@ process_exit (void) {
 		else{
 			ptr = list_next(ptr);
 		}
+	}
+	
+	/* file 해제 */
+	while (!list_empty(&curr->file_list)) {
+		struct fd_info *info = list_entry(
+			list_pop_front(&curr->file_list), struct fd_info, elem);
+		lock_acquire(&file_lock);
+		file_close(info->my_file);
+		lock_release(&file_lock);
+		free(info);
 	}
 
 	if(curr->my_info != NULL){
