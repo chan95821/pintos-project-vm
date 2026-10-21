@@ -48,6 +48,7 @@ static void sys_wait (struct intr_frame *f);
 static void sys_create (struct intr_frame *f);
 static void sys_open (struct intr_frame *f);
 static void sys_read (struct intr_frame *f);
+static void sys_seek (struct intr_frame *f);
 static void sys_write (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
 static void sys_filesize (struct intr_frame *f);
@@ -103,6 +104,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_WRITE:
 			sys_write(f);
+			break;
+		case SYS_SEEK:
+			sys_seek(f);
 			break;
 		case SYS_CLOSE:
 			sys_close(f);
@@ -286,6 +290,26 @@ sys_read (struct intr_frame *f) {
 
 
 
+}
+
+static void
+sys_seek (struct intr_frame *f) {
+	int fd = f->R.rdi;
+	unsigned position = f->R.rsi;
+
+	if(position > INT32_MAX){
+		return;
+	}
+
+	struct fd_info *fd_info;
+
+	if ((fd_info = seek_fd_info(thread_current() , fd)) == NULL) {
+		return;
+	}
+
+	lock_acquire(&file_lock);
+	file_seek(fd_info->my_file, position);
+	lock_release(&file_lock);
 }
 
 static void
