@@ -46,6 +46,7 @@ static void sys_fork (struct intr_frame *f);
 static void sys_exec (struct intr_frame *f);
 static void sys_wait (struct intr_frame *f);
 static void sys_create (struct intr_frame *f);
+static void sys_remove (struct intr_frame *f);
 static void sys_open (struct intr_frame *f);
 static void sys_read (struct intr_frame *f);
 static void sys_seek (struct intr_frame *f);
@@ -94,6 +95,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_CREATE:
 			sys_create(f);
+			break;
+		case SYS_REMOVE:
+			sys_remove(f);
 			break;
 		case SYS_OPEN:
 			sys_open(f);
@@ -197,6 +201,25 @@ sys_create (struct intr_frame *f) {
 	}
 	
 	f->R.rax = filesys_create(fname, initsize);
+}
+
+static void 
+sys_remove (struct intr_frame *f) {
+	char *fname = (char *)f->R.rdi;
+
+	if(fname == NULL || is_kernel_vaddr(fname)) {
+		thread_current()->exit_status = -1;
+		thread_exit();
+	}
+
+	if (is_invaild_filename(fname) || *fname == NULL){
+		f->R.rax = 0;
+		return;
+	}
+
+	lock_acquire(&file_lock);
+	f->R.rax = filesys_remove(fname);
+	lock_release(&file_lock);
 }
 
 static void
