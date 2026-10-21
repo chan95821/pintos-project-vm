@@ -242,6 +242,10 @@ thread_create (const char *name, int priority,
 	#ifdef USERPROG
 	/*for process wait*/
 	struct wait_info *child_info = malloc(sizeof(struct wait_info));
+	if (child_info == NULL) {
+		palloc_free_page(t);
+		return TID_ERROR;
+	}
 	sema_init(&(child_info -> wait), 0);
 	child_info->reference = 2; /*parent + child*/
 	child_info->child_tid = tid;

@@ -39,6 +39,7 @@ void syscall_handler (struct intr_frame *);
 static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
+static bool is_valid_buffer(char *buffer, int size, void* arg);
 
 static void sys_halt (struct intr_frame *f);
 static void sys_exit (struct intr_frame *f);
@@ -230,7 +231,6 @@ sys_remove (struct intr_frame *f) {
 static void
 sys_open (struct intr_frame *f) {
 	char *fname = (char *)f->R.rdi;
-	
 
 	struct file *file;
 
@@ -239,10 +239,16 @@ sys_open (struct intr_frame *f) {
 		thread_exit();
 	}
 	
-	lock_acquire(&file_lock);
-	if ( is_invaild_filename(fname)|| (file = filesys_open(fname)) == NULL) {
+	if (!is_valid_buffer(fname, strlen(fname), '\0') || is_invaild_filename(fname)) {
 		f->R.rax = -1;
 		lock_release(&file_lock);            
+		return;
+	}
+
+	lock_acquire(&file_lock);
+	if ((file = filesys_open(fname)) == NULL) {
+		f->R.rax = -1;
+		lock_release(&file_lock);
 		return;
 	}
 	lock_release(&file_lock);
@@ -288,7 +294,7 @@ sys_read (struct intr_frame *f) {
 	char *buffer = (char *)f->R.rsi;
 	unsigned size = f->R.rdx;
 
-	if(buffer == '\0' || is_kernel_vaddr(buffer + size)){
+	if(!is_valid_buffer(buffer, size, '\0')){
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -322,7 +328,26 @@ sys_read (struct intr_frame *f) {
 	lock_acquire(&file_lock);
 	f->R.rax = file_read(fd_info->file_info->my_file, buffer, size);
 	lock_release(&file_lock);
+}
 
+static void
+sys_seek (struct intr_frame *f) {
+	int fd = f->R.rdi;
+	unsigned position = f->R.rsi;
+
+	if(position > INT32_MAX){
+		return;
+	}
+
+	struct fd_info *fd_info;
+
+	if ((fd_info = seek_fd_info(thread_current() , fd)) == NULL) {
+		return;
+	}
+
+	lock_acquire(&file_lock);
+	file_seek(fd_info->my_file, position);
+	lock_release(&file_lock);
 }
 
 static void
@@ -331,7 +356,7 @@ sys_write (struct intr_frame *f) {
 	int fd = f->R.rdi;
 	uint64_t size = f->R.rdx;
 
-	if (buffer == NULL || is_kernel_vaddr(buffer + size)) {
+	if (!is_valid_buffer(buffer, size, NULL)) {
 		thread_current()->exit_status = -1;
 		thread_exit(); // 접근하면 안 되는 포인터를 주면 프로세스 종료 
 		
@@ -436,6 +461,9 @@ sys_close (struct intr_frame *f) {
 				free(fd_info->file_info);
 			}
 			list_remove(ptr);
+			lock_acquire(&file_lock);
+			file_close(fd_info->my_file);
+			lock_release(&file_lock);
 			free(fd_info);
 			break;
 		}
@@ -525,7 +553,14 @@ static bool is_invaild_filename(char * filename){
 	size_t size;
 	size = strnlen(filename, NAME_MAX+1);
 	return !((size > 0) && (size <= (NAME_MAX)));
+}
 
+static bool is_valid_buffer(char *buffer, int size, void *arg) {
+	struct thread *curr = thread_current();
+	if (buffer == arg || is_kernel_vaddr(buffer + size) || pml4_get_page(curr->pml4, buffer) == NULL) {
+		return false;
+	}
+	return true;
 }
 
 static struct fd_info * seek_fd_info (struct thread *curr, int fd) {

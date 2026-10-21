@@ -38,6 +38,7 @@ struct fork_args {
 	struct thread *curr;
 	struct intr_frame *if_;
 	struct semaphore sema;
+	bool success;
 };
 
 
@@ -120,6 +121,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	}
 	args->curr = thread_current();
 	args->if_ = if_;
+	args->success = true;
 
 	sema_init(&args->sema, 0);
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
@@ -234,6 +236,7 @@ __do_fork (void *aux) {
 		if (file_info == NULL) {
 			free(info);
 			succ = false;
+			lock_release(&file_lock);
 			break;
 		}
 		
@@ -284,10 +287,18 @@ __do_fork (void *aux) {
 
 	/* Finally, switch to the newly created process. */
 	if (succ) {
+		if (parent->running_file != NULL) {
+			/* running file 추가 */
+			lock_acquire(&file_lock);
+			current->running_file = file_duplicate(parent->running_file);
+			lock_release(&file_lock);
+		}
 		sema_up(&((struct fork_args *)aux)->sema);
 		do_iret (&if_);
 	}
 error:
+	((struct fork_args *)aux)->success = false;
+	file_close(current->running_file);
 	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
 }
@@ -462,6 +473,16 @@ process_exit (void) {
 			ptr = list_next(ptr);
 		}
 	}
+	
+	/* file 해제 */
+	while (!list_empty(&curr->file_list)) {
+		struct fd_info *info = list_entry(
+			list_pop_front(&curr->file_list), struct fd_info, elem);
+		lock_acquire(&file_lock);
+		file_close(info->my_file);
+		lock_release(&file_lock);
+		free(info);
+	}
 
 	if(curr->my_info != NULL){
 		curr->my_info->return_status = curr->exit_status;
@@ -503,6 +524,11 @@ process_cleanup (void) {
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
 	}
+	
+	lock_acquire(&file_lock);
+	file_close(curr->running_file);
+	curr->running_file = NULL;
+	lock_release(&file_lock);
 }
 
 /* Sets up the CPU for running user code in the nest thread.
@@ -605,6 +631,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+
+	file_deny_write(file);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -730,7 +758,11 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	if (success) {
+		t->running_file = file;
+	} else {
+		file_close(file);
+	}
 	return success;
 }
 
