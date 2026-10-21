@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/interrupt.h"
 #include "threads/synch.h"
+#include "filesys/file.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -111,6 +112,7 @@ typedef int tid_t;
 	struct list child_list;			/*child 정보를 관리하기 위한 list_elem*/
 	struct list file_list;
 	struct wait_info *my_info;
+	struct file *running_file;			/* 현재 실행중인 파일 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
