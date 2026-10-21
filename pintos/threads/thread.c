@@ -670,6 +670,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&(t->held_lock));
 	list_init(&(t->file_list));
 	t->wait_lock = NULL;
+	t->open = 2;
 
 	list_init(&t->child_list);
 	t->my_info = NULL;

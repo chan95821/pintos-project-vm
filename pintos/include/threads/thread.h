@@ -101,6 +101,7 @@ typedef int tid_t;
 	int nice; 							/* mlfqs를 위한 필드 */
 	int recent_cpu;						/* recent_cpu는 고정소수점으로 저장한다. */
 	int exit_status;							/*종료 상태*/
+	int open;							/* open 할 수 있는 fd번호 */
 
 	int64_t local_tick; 				/* 깨어날 절대시간 */
 

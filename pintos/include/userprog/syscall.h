@@ -5,10 +5,17 @@
 
 void syscall_init (void);
 
+#define STDIN_FILE ((struct file *) 1)
+#define STDOUT_FILE ((struct file *) 2)
+
 struct fd_info{
-	struct file *my_file;
+	struct file_info *file_info;
 	struct list_elem elem;
 	int fd;
 };
 
+struct file_info {
+	struct file *my_file;
+	int reference;
+};
 #endif /* userprog/syscall.h */

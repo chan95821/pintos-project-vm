@@ -32,6 +32,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static void count_file_info_reference(struct list *file_list, struct file_info* file_info);
 
 struct fork_args {
 	struct thread *curr;
@@ -83,10 +84,29 @@ initd (void *f_name) {
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
+	struct fd_info *stdin_info;
+	if ((stdin_info = make_fd_info(0, STDIN_FILE)) == NULL) {
+		PANIC("Fail to launch initd\n");
+	}
+
+	struct fd_info *stdout_info;
+	if ((stdout_info = make_fd_info(1, STDOUT_FILE)) == NULL) {
+		free(stdin_info);
+		PANIC("Fail to launch initd\n");
+	}
+
 	process_init ();
 
-	if (process_exec (f_name) < 0)
+	struct list *file_list = &thread_current()->file_list;
+	list_push_front(file_list, &stdin_info->elem);
+	list_push_front(file_list, &stdout_info->elem);
+
+	if (process_exec (f_name) < 0) {
+		free(stdin_info);
+		free(stdout_info);
 		PANIC("Fail to launch initd\n");
+	}
+
 	NOT_REACHED ();
 }
 
@@ -105,12 +125,11 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
 	sema_init(&args->sema, 0);
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
-	if (tid != TID_ERROR) {
-		sema_down(&args->sema);
+	if (tid == TID_ERROR) {
+		return TID_ERROR;
 	}
-	
-	tid = args->success ? tid : TID_ERROR;
-	
+	sema_down(&args->sema);
+
 	free(args);
 
 	return tid;
@@ -193,6 +212,13 @@ __do_fork (void *aux) {
 		goto error;
 #endif
 
+	/* 부모의 open을 복사해줌 */
+	current->open = parent->open;
+
+	/* 화면 file_info 복제를 위한 준비 */
+	struct file_info *stdin_info = NULL;
+	struct file_info *stdout_info = NULL;
+
 	/* 자식 스레드의 파일 리스트에 fd_info elem 복제 */
 	struct list* p_file_list = &parent->file_list;
 	for (struct list_elem *p_curr_elem = list_begin(p_file_list);
@@ -204,17 +230,57 @@ __do_fork (void *aux) {
 			succ = false;
 			break;
 		}
-		
-		memcpy(info, list_entry(p_curr_elem, struct fd_info, elem), sizeof(struct fd_info));
 
-		lock_acquire(&file_lock);
-		if ((info->my_file = file_duplicate(info->my_file)) == NULL) {
-			succ = false;
+		struct file_info *file_info = malloc(sizeof(struct file_info));
+
+		if (file_info == NULL) {
 			free(info);
+			succ = false;
 			lock_release(&file_lock);
 			break;
 		}
-		lock_release(&file_lock);
+		
+		struct fd_info *parent_fd_info = list_entry(p_curr_elem, struct fd_info, elem);
+		memcpy(info, parent_fd_info, sizeof(struct fd_info));
+		info->file_info = file_info;
+		file_info->reference = 1;
+
+		if (isnt_stdin_or_stdout(parent_fd_info)) {
+			lock_acquire(&file_lock);
+			if ((info->file_info->my_file = file_duplicate(parent_fd_info->file_info->my_file)) == NULL) {
+				succ = false;
+				lock_release(&file_lock);
+				free(file_info);
+				free(info);
+				break;
+			}
+			lock_release(&file_lock);
+			count_file_info_reference(&current->file_list, file_info);
+		}
+		else { // 화면일 때 여러 file_info를 만들지 않도록 분기 처리
+			if (parent_fd_info->file_info->my_file == STDIN_FILE) {
+				if (stdin_info == NULL) {
+					stdin_info = file_info;
+					file_info->my_file = STDIN_FILE;
+				}
+				else{
+					info->file_info = stdin_info;
+					info->file_info->reference++;
+					free(file_info);
+				}
+			}
+			else {
+				if (stdout_info == NULL) {
+					stdout_info = file_info;
+					file_info->my_file = STDOUT_FILE;
+				}
+				else{
+					info->file_info = stdout_info;
+					info->file_info->reference++;
+					free(file_info);
+				}
+			}
+		}
 
 		list_push_back(&current->file_list, &info->elem);
 	}
@@ -235,6 +301,16 @@ error:
 	file_close(current->running_file);
 	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
+}
+
+static void count_file_info_reference(struct list *file_list, struct file_info* file_info) {
+	struct file *target = file_info->my_file;
+	struct list_elem *ptr;
+	for (ptr = list_begin(file_list); ptr != list_end(file_list); ptr = list_next(ptr)) {
+		if (list_entry(ptr, struct fd_info, elem)->file_info->my_file == target) {
+			file_info->reference++;
+		}
+	}
 }
 
 /*\0 까지 포함한 버퍼의 크기를 넣어야함*/
@@ -353,11 +429,38 @@ process_exit (void) {
 		printf("%s: exit(%d)\n", curr->name, curr->exit_status );
 	}
 
-	enum intr_level old_level = intr_disable();
-	struct list *child_list = &(curr->child_list);
-	struct list_elem *ptr; /* child */
+	if(lock_held_by_current_thread(&file_lock)){
+		lock_release(&file_lock);
+	}
 
-	/* child 순회하며 wait_info 해제  */
+	struct list *child_list = &(curr->child_list);
+	struct list_elem *ptr;
+
+	/*file list 정리 -> 인터럽트 밖에서 처리 */
+	struct list *file_list = &curr->file_list;
+	for(ptr = list_begin(file_list); ptr != list_end(file_list);){
+		struct fd_info *fd_info = list_entry(ptr, struct fd_info, elem);
+		fd_info->file_info->reference--;
+		if(fd_info->file_info->reference == 0){
+			struct list_elem *next = list_next(ptr);
+			if (fd_info->file_info->my_file != STDIN_FILE && fd_info->file_info->my_file != STDOUT_FILE) {
+				lock_acquire(&file_lock);
+				file_close(fd_info->file_info->my_file);
+				lock_release(&file_lock);
+			}
+			free(fd_info->file_info);
+			ptr = next;
+		}
+		else{
+			ptr = list_next(ptr);
+		}
+		free(fd_info);
+	}
+
+
+	enum intr_level old_level = intr_disable();
+
+	/*child list 정리*/
 	for(ptr = list_begin(child_list); ptr != list_end(child_list);){
 		struct wait_info *child = list_entry(ptr, struct wait_info, child_elem);
 		child->reference--;
@@ -392,6 +495,7 @@ process_exit (void) {
 		}
 	}
 	intr_set_level(old_level);
+
 	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
 }
 
@@ -875,3 +979,33 @@ setup_stack (struct intr_frame *if_) {
 	return success;
 }
 #endif /* VM */
+
+struct fd_info * make_fd_info (int fd, struct file *file) {
+
+	struct fd_info *fd_info = malloc(sizeof(struct fd_info));
+
+	if (fd_info == NULL) {
+		return NULL;
+	}
+
+	struct file_info *file_info = malloc(sizeof(struct file_info));
+
+	if (file_info == NULL) {
+		free(fd_info);
+		return NULL;
+	}
+
+	fd_info->fd = fd;
+	file_info->reference = 1;
+	fd_info->file_info = file_info;
+	fd_info->file_info->my_file = file;
+
+	return fd_info;
+}
+
+bool isnt_stdin_or_stdout(struct fd_info *fd_info) {
+	if (fd_info->file_info->my_file == STDIN_FILE || fd_info->file_info->my_file == STDOUT_FILE){
+		return false;
+	}
+	return true;
+}
