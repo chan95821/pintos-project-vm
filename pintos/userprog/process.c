@@ -365,14 +365,14 @@ process_exit (void) {
 	}
 	
 	/* file 해제 */
-	lock_acquire(&file_lock);
 	while (!list_empty(&curr->file_list)) {
 		struct fd_info *info = list_entry(
 			list_pop_front(&curr->file_list), struct fd_info, elem);
+		lock_acquire(&file_lock);
 		file_close(info->my_file);
+		lock_release(&file_lock);
 		free(info);
 	}
-	lock_release(&file_lock);
 
 	if(curr->my_info != NULL){
 		curr->my_info->return_status = curr->exit_status;
