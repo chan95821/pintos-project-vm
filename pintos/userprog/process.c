@@ -32,7 +32,6 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
-static void count_file_info_reference(struct list *file_list, struct file_info* file_info);
 
 struct fork_args {
 	struct thread *curr;
@@ -255,7 +254,6 @@ __do_fork (void *aux) {
 				break;
 			}
 			lock_release(&file_lock);
-			count_file_info_reference(&current->file_list, file_info);
 		}
 		else { // 화면일 때 여러 file_info를 만들지 않도록 분기 처리
 			if (parent_fd_info->file_info->my_file == STDIN_FILE) {
@@ -301,16 +299,6 @@ error:
 	file_close(current->running_file);
 	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
-}
-
-static void count_file_info_reference(struct list *file_list, struct file_info* file_info) {
-	struct file *target = file_info->my_file;
-	struct list_elem *ptr;
-	for (ptr = list_begin(file_list); ptr != list_end(file_list); ptr = list_next(ptr)) {
-		if (list_entry(ptr, struct fd_info, elem)->file_info->my_file == target) {
-			file_info->reference++;
-		}
-	}
 }
 
 /*\0 까지 포함한 버퍼의 크기를 넣어야함*/
@@ -371,12 +359,6 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 
-// struct wait_info{
-// 	int reference;
-// 	int return_status;
-// 	struct semaphore wait;
-// 	struct list_elem child;
-// };
 
 
 int

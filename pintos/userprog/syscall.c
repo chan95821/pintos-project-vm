@@ -74,10 +74,8 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
 
 	uint64_t syscall_num = f->R.rax;
-	int result;
 	switch (syscall_num){
 		case SYS_HALT:
 			sys_halt(f);
@@ -172,16 +170,18 @@ sys_exec (struct intr_frame *f) {
 
 	/* 널문자까지 포함해서 page size여야함 */
 	if ((strlcpy(buffer, (const char *)fname, PAGE_SIZE)) >= PAGE_SIZE){
-		
-		f->R.rax = -1;
-		return;
+		palloc_free_page(buffer);
+		/* 커맨드가 페이지에 다 안 들어가면 exec 실패 → exit 해야됨 */
+		thread_current()->exit_status = -1;
+		thread_exit();
 	}
 
 	int reslt = process_exec(buffer);
 	
 	if (reslt == -1){
-		f->R.rax = -1;
-		return;
+		/* 주소 공간이 이미 지워져서 돌아갈 곳이 없음 -> exit 해야됨 */
+		thread_current()->exit_status = -1;
+		thread_exit();
 	}
 }
 
@@ -259,6 +259,11 @@ sys_open (struct intr_frame *f) {
 
 	struct fd_info *fd_info;
 	if ((fd_info = make_fd_info(fd, file)) == NULL) {
+		/*실패하면 파일을 닫고 나가야함*/
+		lock_acquire(&file_lock);
+		file_close(file);
+		lock_release(&file_lock);
+		
 		f->R.rax = -1;
 		return;
 	}
@@ -288,8 +293,6 @@ sys_filesize(struct intr_frame *f) {
 static void
 sys_read (struct intr_frame *f) {
 
-	//lock 만들어주기
-	//lock 을 맨 앞에 만들지 파일시스템 관련된 것만 락을 걸지 생각  
 
 	int fd = f->R.rdi;
 	char *buffer = (char *)f->R.rsi;
@@ -419,11 +422,6 @@ sys_write (struct intr_frame *f) {
 static void
 sys_close (struct intr_frame *f) {
 	int fd = f->R.rdi;
-
-	// if ( fd == NULL ) {
-	// 	thread_current()->exit_status = -1;
-	// 	thread_exit();
-	// } dup2 를 위해 지움
 
 	struct thread *curr = thread_current();
 	struct list_elem *ptr;
