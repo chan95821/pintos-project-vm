@@ -125,10 +125,11 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
 	sema_init(&args->sema, 0);
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, args);
-	if (tid == TID_ERROR) {
-		return TID_ERROR;
+	if (tid != TID_ERROR) {
+		sema_down(&args->sema);
 	}
-	sema_down(&args->sema);
+
+	tid = args->success ? tid : TID_ERROR;
 
 	free(args);
 
@@ -236,7 +237,6 @@ __do_fork (void *aux) {
 		if (file_info == NULL) {
 			free(info);
 			succ = false;
-			lock_release(&file_lock);
 			break;
 		}
 		
@@ -472,16 +472,6 @@ process_exit (void) {
 		else{
 			ptr = list_next(ptr);
 		}
-	}
-	
-	/* file 해제 */
-	while (!list_empty(&curr->file_list)) {
-		struct fd_info *info = list_entry(
-			list_pop_front(&curr->file_list), struct fd_info, elem);
-		lock_acquire(&file_lock);
-		file_close(info->my_file);
-		lock_release(&file_lock);
-		free(info);
 	}
 
 	if(curr->my_info != NULL){

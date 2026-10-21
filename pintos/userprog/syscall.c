@@ -170,7 +170,9 @@ sys_exec (struct intr_frame *f) {
 		return;
 	}		
 
-	if ((strlcpy(buffer, (const char *)fname, PAGE_SIZE+1)) == PAGE_SIZE+1){
+	/* 널문자까지 포함해서 page size여야함 */
+	if ((strlcpy(buffer, (const char *)fname, PAGE_SIZE)) >= PAGE_SIZE){
+		
 		f->R.rax = -1;
 		return;
 	}
@@ -240,8 +242,7 @@ sys_open (struct intr_frame *f) {
 	}
 	
 	if (!is_valid_buffer(fname, strlen(fname), '\0') || is_invaild_filename(fname)) {
-		f->R.rax = -1;
-		lock_release(&file_lock);            
+		f->R.rax = -1;       
 		return;
 	}
 
@@ -330,6 +331,7 @@ sys_read (struct intr_frame *f) {
 	lock_release(&file_lock);
 }
 
+
 static void
 sys_seek (struct intr_frame *f) {
 	int fd = f->R.rdi;
@@ -345,10 +347,31 @@ sys_seek (struct intr_frame *f) {
 		return;
 	}
 
+	if(!isnt_stdin_or_stdout(fd_info)) {
+		return;
+	}
+
 	lock_acquire(&file_lock);
-	file_seek(fd_info->my_file, position);
+	file_seek(fd_info->file_info->my_file, position);
 	lock_release(&file_lock);
 }
+
+static void 
+sys_tell (struct intr_frame *f) {
+	int fd = f->R.rdi;
+	struct fd_info *fd_info;
+	
+	if((fd_info = seek_fd_info(thread_current(), fd)) == NULL || !(isnt_stdin_or_stdout(fd_info))) {
+		f->R.rax = -1;
+		return;
+	}
+	
+	lock_acquire(&file_lock);
+	f->R.rax = file_tell(fd_info->file_info->my_file);
+	lock_release(&file_lock);
+	
+}
+
 
 static void
 sys_write (struct intr_frame *f) {
@@ -394,46 +417,6 @@ sys_write (struct intr_frame *f) {
 }
 
 static void
-sys_seek (struct intr_frame *f) {
-	int fd = f->R.rdi;
-	unsigned position = f->R.rsi;
-
-	if(position > INT32_MAX){
-		return;
-	}
-
-	struct fd_info *fd_info;
-
-	if ((fd_info = seek_fd_info(thread_current() , fd)) == NULL) {
-		return;
-	}
-
-	if(!isnt_stdin_or_stdout(fd_info)) {
-		return;
-	}
-
-	lock_acquire(&file_lock);
-	file_seek(fd_info->file_info->my_file, position);
-	lock_release(&file_lock);
-}
-
-static void 
-sys_tell (struct intr_frame *f) {
-	int fd = f->R.rdi;
-	struct fd_info *fd_info;
-	
-	if((fd_info = seek_fd_info(thread_current(), fd)) == NULL || !(isnt_stdin_or_stdout(fd_info))) {
-		f->R.rax = -1;
-		return;
-	}
-	
-	lock_acquire(&file_lock);
-	f->R.rax = file_tell(fd_info->file_info->my_file);
-	lock_release(&file_lock);
-	
-}
-
-static void
 sys_close (struct intr_frame *f) {
 	int fd = f->R.rdi;
 
@@ -461,9 +444,6 @@ sys_close (struct intr_frame *f) {
 				free(fd_info->file_info);
 			}
 			list_remove(ptr);
-			lock_acquire(&file_lock);
-			file_close(fd_info->my_file);
-			lock_release(&file_lock);
 			free(fd_info);
 			break;
 		}
