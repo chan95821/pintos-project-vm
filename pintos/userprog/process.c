@@ -32,6 +32,9 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static bool duplicate_fd_list(struct list *p_file_list, struct list *c_file_list);
+static struct file_info *find_shared_file_info(struct list *p_file_list, struct list_elem *p_curr_elem, struct list *c_file_list);
+static struct file_info *duplicate_file_info(struct fd_info *parent_fd_info);
 
 struct fork_args {
 	struct thread *curr;
@@ -215,72 +218,8 @@ __do_fork (void *aux) {
 	/* 부모의 open을 복사해줌 */
 	current->open = parent->open;
 
-	/* 화면 file_info 복제를 위한 준비 */
-	struct file_info *stdin_info = NULL;
-	struct file_info *stdout_info = NULL;
-
-	/* 자식 스레드의 파일 리스트에 fd_info elem 복제 */
-	struct list* p_file_list = &parent->file_list;
-	for (struct list_elem *p_curr_elem = list_begin(p_file_list);
-	    p_curr_elem != list_end(p_file_list); 
-		p_curr_elem = list_next(p_curr_elem)) {
-		
-		struct fd_info *info = malloc(sizeof(struct fd_info));
-		if (info == NULL) {
-			succ = false;
-			break;
-		}
-
-		struct file_info *file_info = malloc(sizeof(struct file_info));
-
-		if (file_info == NULL) {
-			free(info);
-			succ = false;
-			break;
-		}
-		
-		struct fd_info *parent_fd_info = list_entry(p_curr_elem, struct fd_info, elem);
-		memcpy(info, parent_fd_info, sizeof(struct fd_info));
-		info->file_info = file_info;
-		file_info->reference = 1;
-
-		if (isnt_stdin_or_stdout(parent_fd_info)) {
-			lock_acquire(&file_lock);
-			if ((info->file_info->my_file = file_duplicate(parent_fd_info->file_info->my_file)) == NULL) {
-				succ = false;
-				lock_release(&file_lock);
-				free(file_info);
-				free(info);
-				break;
-			}
-			lock_release(&file_lock);
-		}
-		else { // 화면일 때 여러 file_info를 만들지 않도록 분기 처리
-			if (parent_fd_info->file_info->my_file == STDIN_FILE) {
-				if (stdin_info == NULL) {
-					stdin_info = file_info;
-					file_info->my_file = STDIN_FILE;
-				}
-				else{
-					info->file_info = stdin_info;
-					info->file_info->reference++;
-					free(file_info);
-				}
-			}
-			else {
-				if (stdout_info == NULL) {
-					stdout_info = file_info;
-					file_info->my_file = STDOUT_FILE;
-				}
-				else{
-					info->file_info = stdout_info;
-					info->file_info->reference++;
-					free(file_info);
-				}
-			}
-		}
-
-		list_push_back(&current->file_list, &info->elem);
+	if (!duplicate_fd_list(&parent->file_list, &current->file_list)) {
+		succ = false;
 	}
 
 	/* Finally, switch to the newly created process. */
@@ -299,6 +238,72 @@ error:
 	file_close(current->running_file);
 	sema_up(&((struct fork_args *)aux)->sema);
 	thread_exit ();
+}
+
+static bool
+duplicate_fd_list(struct list *p_file_list, struct list *c_file_list) {
+	for (struct list_elem *p_curr_elem = list_begin(p_file_list);
+	    p_curr_elem != list_end(p_file_list);
+		p_curr_elem = list_next(p_curr_elem)) {
+
+		struct fd_info *parent_fd_info = list_entry(p_curr_elem, struct fd_info, elem);
+
+		struct fd_info *info = malloc(sizeof(struct fd_info));
+		if (info == NULL) {
+			return false;
+		}
+		info->fd = parent_fd_info->fd;
+
+		struct file_info *shared = find_shared_file_info(p_file_list, p_curr_elem, c_file_list);
+		if (shared != NULL) {
+			info->file_info = shared;
+			shared->reference++;
+		}
+		else if ((info->file_info = duplicate_file_info(parent_fd_info)) == NULL) {
+			free(info);
+			return false;
+		}
+
+		list_push_back(c_file_list, &info->elem);
+	}
+	return true;
+}
+
+static struct file_info *
+find_shared_file_info(struct list *p_file_list, struct list_elem *p_curr_elem, struct list *c_file_list) {
+	struct file_info *target = list_entry(p_curr_elem, struct fd_info, elem)->file_info;
+	struct list_elem *p_prev = list_begin(p_file_list);
+	struct list_elem *c_prev = list_begin(c_file_list);
+
+	for (; p_prev != p_curr_elem; p_prev = list_next(p_prev), c_prev = list_next(c_prev)) {
+		if (list_entry(p_prev, struct fd_info, elem)->file_info == target) {
+			return list_entry(c_prev, struct fd_info, elem)->file_info;
+		}
+	}
+	return NULL;
+}
+
+static struct file_info *
+duplicate_file_info(struct fd_info *parent_fd_info) {
+	struct file_info *file_info = malloc(sizeof(struct file_info));
+	if (file_info == NULL) {
+		return NULL;
+	}
+	file_info->reference = 1;
+
+	if (isnt_stdin_or_stdout(parent_fd_info)) {
+		lock_acquire(&file_lock);
+		file_info->my_file = file_duplicate(parent_fd_info->file_info->my_file);
+		lock_release(&file_lock);
+		if (file_info->my_file == NULL) {
+			free(file_info);
+			return NULL;
+		}
+	}
+	else {
+		file_info->my_file = parent_fd_info->file_info->my_file;
+	}
+	return file_info;
 }
 
 /*\0 까지 포함한 버퍼의 크기를 넣어야함*/
