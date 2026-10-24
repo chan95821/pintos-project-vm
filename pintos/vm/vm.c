@@ -1,6 +1,7 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
 #include "threads/malloc.h"
+#include "threads/vaddr.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
@@ -62,21 +63,17 @@ err:
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
+spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page *page = NULL;
-	/* TODO: Fill this function. */
-
-	return page;
+	struct page temp = {.va = va};
+	return hash_find(&spt->hash, &temp.element)?hash_entry(hash_find(&spt->hash, &temp.element), struct page, element):NULL;
 }
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
-	/* TODO: Fill this function. */
-
-	return succ;
+spt_insert_page (struct supplemental_page_table *spt,
+		struct page *page) {
+	return hash_insert(&spt->hash, &page->element)?0:1;
 }
 
 void
@@ -130,14 +127,21 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f, void *addr,
+		bool user, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
 
-	return vm_do_claim_page (page);
+	if(is_kernel_vaddr(addr))return 0;
+	page = spt_find_page(spt, addr);
+	if(page)
+		if(write&&!page->perm.is_writable)return 0;
+		else if(!not_present)return vm_do_claim_page(page);
+		else return 0;
+	else 
+		if((char *)USER_STACK - (char *)addr < 1<<20)vm_stack_growth(addr);
+		else return 0;
+	return vm_claim_page(addr);
 }
 
 /* Free the page.
