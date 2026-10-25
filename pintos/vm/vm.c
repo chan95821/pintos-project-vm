@@ -152,7 +152,14 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	// TODO: load 인자 전달에도 함수 사용할지 결정
+	char *page_addr = pg_round_down(addr);
+	if(page_addr <= USER_STACK - PGSIZE) {
+		if(!vm_alloc_page(VM_ANON, page_addr, true)) {
+			thread_exit();
+		}
+	}
 }
 
 /* Handle the fault on write_protected page */
