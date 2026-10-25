@@ -232,6 +232,15 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 
+	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable )) { // va, kva should be page aligned
+		
+		free(frame);
+		/**
+		 * cand 1. update frame table
+		 * cand 2. process might terminate if returned false. cleanup frames/pages in thread_exit procedure
+		 */
+		return false;
+	}
 	return swap_in (page, frame->kva);
 }
 
