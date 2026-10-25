@@ -2,9 +2,11 @@
 
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
+#define MAX_STACK_ADDR (USER_STACK - 1 << 20)
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -127,12 +129,37 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f , void *addr ,
+		bool user , bool write , bool not_present ) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	
+	if(is_kernel_vaddr(addr)) { // TODO: addr 확인 함수로 교체하기
+		return false;
+	} 
+
+	page = spt_find_page(spt, addr);
+
+	if(page == NULL) {
+		//스택 접근 판단 로직 - tc 확인해봐야
+		if(addr >= rsp - 8 && addr > MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+			vm_stack_growth(addr); 
+			
+			page = spt_find_page(spt, addr);
+			if(!page) {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+	
+	if(!page->is_writable && write) {
+		return false;
+	}
 
 	return vm_do_claim_page (page);
 }
