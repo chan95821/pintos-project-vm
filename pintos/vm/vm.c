@@ -47,8 +47,9 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
+	upage = pg_round_down(upage);
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
-
+	struct page *new_page;
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
@@ -56,10 +57,31 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		bool (*initializer)(struct page *, enum vm_type, void *kva);
+		new_page = calloc(sizeof(*new_page), 1);
 
+		switch(type) {
+			case VM_ANON:
+				initializer = anon_initializer;
+				break;
+			case VM_FILE:
+				initializer = file_backed_initializer;
+				break;
+		}
+
+		uninit_new(new_page, upage, init, type, aux, initializer);
+		new_page->is_writable = writable; // type 무관
+	
+
+		if(!spt_insert_page(spt, new_page)) {
+			goto err;
+		} else {
+			return true;
+		}
 		/* TODO: Insert the page into the spt. */
 	}
 err:
+	free(new_page);
 	return false;
 }
 
@@ -111,6 +133,17 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
+
+	void *kva = palloc_get_page(PAL_USER); 
+	if( kva == NULL) {
+		frame = vm_evict_frame(); 
+	}
+
+	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
+
+	frame = malloc(sizeof(*frame));
+	frame->kva = kva;
+	frame->page = NULL;
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
