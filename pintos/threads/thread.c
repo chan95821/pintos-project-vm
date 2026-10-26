@@ -699,8 +699,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 		intr_set_level(old_level);
 	}
 
-	// hash_init(&t->spt.hash, hash_func, hash_less, NULL);
-
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
