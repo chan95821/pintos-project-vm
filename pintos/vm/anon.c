@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "devices/disk.h"
+#include "threads/vaddr.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -28,18 +29,18 @@ vm_anon_init (void) {
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
+
+	ASSERT(type == VM_ANON);
+
 	page->operations = &anon_ops;
-
 	struct anon_page *anon_page = &page->anon;
-
-	/*TODO*/
-	*anon_page = (struct anon) {
-		//evitcion에 따라 구조가 다름
-		//swap in 할 곳? -> 만약에 stack만 anon으로 취급할 거면 stack 인지 아닌지를 ㄱ저장하고 잇어야할 거 같음 
-	}
+	
+	page->anon = (struct anon_page) {
+		/* TODO: executable을 evict할 때 swap slot으로 보내지 않는다면, aux 복사해줘야 함*/
+		.swap_index = NULL
+	};
 
 	return true;
-	
 }
 
 /* Swap in the page by read contents from the swap disk. */

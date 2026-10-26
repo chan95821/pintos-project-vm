@@ -43,7 +43,7 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
-/* Create the pending page object with initializer. If you want to create a
+/* Create the pending page object with initializer and insert page to spt. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
 bool
@@ -52,7 +52,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT);
 	upage = pg_round_down(upage);
-
+	struct page *page;
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
@@ -61,7 +61,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
 
-		struct page *page = malloc(sizeof(struct page));
+		page = malloc(sizeof(struct page));
 		if (!page) {
 			goto err;
 		}
@@ -78,16 +78,15 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			}
 		}
 	}
-	
-	/*struct page writeble 작성*/
   	page->is_writable = writable; // type 무관
+
+	/* TODO: Insert the page into the spt. */
 
     if(!spt_insert_page(spt, page)) {
 			goto err;
 		} else {
 			return true;
 		}
-		/* TODO: Insert the page into the spt. */
 err:
 	free(page);
 	return false;
@@ -176,7 +175,7 @@ vm_stack_growth (void *addr) {
 	if (vm_alloc_page(VM_ANON, addr, true)) {
 		if (vm_claim_page(addr)) {
 			return true;
-		}
+		} // TODO: process will terminate if returned false. need vm_dealloc in process cleanup procedure
 	}
 	return false;
 }
@@ -186,7 +185,7 @@ static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
 
-statc bool
+static bool
 addr_is_vaild (void * addr) { /*정리 필요*/
 	if (0x400000 > addr || addr >= USER_STACK) {
 		return false;

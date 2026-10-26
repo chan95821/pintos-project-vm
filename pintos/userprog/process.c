@@ -987,12 +987,16 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	
+	success = vm_stack_growth(stack_bottom);
 
-	/*TODO*/
-	//success = stack growth
-	//success에 따른 분기 처리 -> free는 stack growth 안에서 관리함 
-	//if_->rsp = USER_STACK;
-	//stack 인 것을 표시하는 비트? ->  * TODO: You should mark the page is stack. */
+	if (success) {
+		if_->rsp = USER_STACK;
+	} else {
+		return success;
+	}
+
+	memset(stack_bottom, 0, PGSIZE);
 
 	return success;
 }
