@@ -102,7 +102,7 @@ typedef int tid_t;
 	int recent_cpu;						/* recent_cpu는 고정소수점으로 저장한다. */
 	int exit_status;							/*종료 상태*/
 	int open;							/* open 할 수 있는 fd번호 */
-	uint_64_t user_rsp; 				/* syscall handler로 들어갈때 rsp 저장*/
+	uint64_t user_rsp; 				/* syscall handler로 들어갈때 rsp 저장*/
 
 	int64_t local_tick; 				/* 깨어날 절대시간 */
 
