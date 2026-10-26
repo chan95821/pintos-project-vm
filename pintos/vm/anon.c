@@ -29,14 +29,27 @@ bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
+	vm_initializer *initializer = page->uninit.init;
+	void *aux = page->uninit.aux;
 
 	struct anon_page *anon_page = &page->anon;
+
+	// 이미 uninit_initialize가 init 함수 알고있으니 바꿔도 됨
+	
+	*anon_page = (struct anon) {
+		일단 src 필요,
+		swap slot 위치 필요 - frame 처럼
+		
+	}
+
+	
 }
 
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
+	
 }
 
 /* Swap out the page by writing contents to the swap disk. */
