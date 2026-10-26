@@ -3,6 +3,9 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/mmu.h"
+
+#define MAX_STACK_ADDR 0x47380000
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -44,7 +47,7 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
@@ -54,7 +57,31 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
 
+		struct page *page = malloc(sizeof(struct page));
+		if (!page) {
+			goto err;
+		}
+
+		switch (VM_TYPE(type)) {
+			case VM_ANON : {
+				uninit_new(page, upage, init, type, aux, anon_initializer);
+				break;
+			} case VM_FILE : {
+				uninit_new(page, upage, init, type, aux, file_backed_initializer);
+				break;
+			} default : {
+				goto err;
+			}
+		}
+		/*struct page writeble 작성*/
+
 		/* TODO: Insert the page into the spt. */
+		if (!spt_insert_page(spt, page)) {
+			free(page);
+			goto err;
+		}
+
+		return true;
 	}
 err:
 	return false;
@@ -113,14 +140,31 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 
-	ASSERT (frame != NULL);
+	frame = malloc(sizeof(struct frame));
+	ASSERT (frame != NULL); /*malloc 실패시 커널 패닉 -> 원래 있었던 assert 방향에 맞춤*/
+	ft_insert_frame(frame);
+
+	if (frame->kva = palloc_get_page(PAL_USER) == NULL) {
+		panic("todo"); /*나중에 evition이 들어갈 자리 현재는 커널 패닉으로 막아놓음*/
+	}
+	frame->page = NULL;
+
 	ASSERT (frame->page == NULL);
+
 	return frame;
 }
 
 /* Growing the stack. */
-static void
-vm_stack_growth (void *addr UNUSED) {
+static bool
+vm_stack_growth (void *addr) {
+	addr = pg_round_down(addr);
+
+	if (vm_alloc_page(VM_ANON, addr, true)) {
+		if (vm_claim_page(addr)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /* Handle the fault on write_protected page */
@@ -128,16 +172,49 @@ static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
 
+statc bool
+addr_is_vaild (void * addr) { /*정리 필요*/
+	if (0x400000 > addr || addr >= USER_STACK) {
+		return false;
+	}
+	return true;
+}
+
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+		bool user UNUSED, bool write, bool not_present) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	
+	if (addr_is_vaild (addr)) {
+		return false;           
+	}
 
-	return vm_do_claim_page (page);
+	page = spt_find_page(spt, addr);
+
+	if (page) {
+		if (write && !page->perm.is_writable) {
+			return false;
+		} else if (not_present) {
+			return vm_do_claim_page(page);
+		} else {
+			return false;
+		}
+	}
+	else {
+		// stack growth 조건 판단
+		if (addr >= rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+			vm_stack_growth(addr);
+			page = spt_find_page(spt, addr);
+		} else {
+			return false;
+		}
+
+		return vm_do_claim_page(addr);
+	}
 }
 
 /* Free the page.
@@ -150,10 +227,10 @@ vm_dealloc_page (struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool
-vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
+vm_claim_page (void *va) {
+	struct page *page = spt_find_page(&thread_current()->spt, va);
 	/* TODO: Fill this function */
-
+	
 	return vm_do_claim_page (page);
 }
 
@@ -167,6 +244,11 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	if (!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->page.perm.is_writable)) {
+		palloc_free_page(frame->kva);
+		free(frame);
+		return false;
+	}
 
 	return swap_in (page, frame->kva);
 }
