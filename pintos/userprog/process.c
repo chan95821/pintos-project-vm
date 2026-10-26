@@ -988,6 +988,12 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 
+	/*TODO*/
+	//success = stack growth
+	//success에 따른 분기 처리 -> free는 stack growth 안에서 관리함 
+	//if_->rsp = USER_STACK;
+	//stack 인 것을 표시하는 비트? ->  * TODO: You should mark the page is stack. */
+
 	return success;
 }
 #endif /* VM */

@@ -29,19 +29,16 @@ bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
-	vm_initializer *initializer = page->uninit.init;
-	void *aux = page->uninit.aux;
 
 	struct anon_page *anon_page = &page->anon;
 
-	// 이미 uninit_initialize가 init 함수 알고있으니 바꿔도 됨
-	
+	/*TODO*/
 	*anon_page = (struct anon) {
-		일단 src 필요,
-		swap slot 위치 필요 - frame 처럼
-		
+		//evitcion에 따라 구조가 다름
+		//swap in 할 곳? -> 만약에 stack만 anon으로 취급할 거면 stack 인지 아닌지를 ㄱ저장하고 잇어야할 거 같음 
 	}
 
+	return true;
 	
 }
 

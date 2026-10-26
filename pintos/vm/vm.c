@@ -77,7 +77,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 				goto err;
 			}
 		}
-		/*struct page writeble 작성*/
+	}
+	
+	/*struct page writeble 작성*/
   	page->is_writable = writable; // type 무관
 
     if(!spt_insert_page(spt, page)) {
@@ -167,7 +169,7 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static bool
+bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
 
