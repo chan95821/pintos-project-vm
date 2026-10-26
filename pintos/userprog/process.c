@@ -898,6 +898,29 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct thread *t = thread_current();
+
+	ASSERT(page->frame != NULL);
+	ASSERT(is_writable(pml4e_walk(t->pml4, page->frame->kva, false)));
+
+	struct file_src *file_meta = aux;
+	uint8_t *kva = page->frame->kva;
+	uint32_t read_bytes = file_meta->read_bytes;
+
+
+	uint32_t zero_bytes = PGSIZE - read_bytes;
+
+	lock_acquire(&file_lock);
+	if(file_read_at(t->running_file, kva, read_bytes, file_meta->offset) != read_bytes) {
+		return false;
+	}
+	lock_release(&file_lock);
+
+	/* do_claim_page에서 palloc시 PAL_ZERO flag를 붙여주지 않으므로, 나머지를 0으로 memset*/
+	memset(kva + read_bytes, 0, zero_bytes); 
+
+	return true;
+	
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
