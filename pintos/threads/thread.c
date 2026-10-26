@@ -260,16 +260,10 @@ thread_create (const char *name, int priority,
 	#endif
 
 	#ifdef VM
-	// include 정리 필요
-	struct supplemental_page table *spt = malloc(sizeof(supplemental_page_table));
-	if (spt == NULL) {
+	if (!hash_init(spt, hash_func, hash_less, NULL)) {
 		palloc_free_page(t);
 		return TID_ERROR;
 	}
-	t->spt = spt;
-	supplemental_page_table_init (struct supplemental_page_table *spt UNUSED);
-	//exit 할 때 spt free랑 hash table free해야함
-
 	#endif
 
 	if(thread_mlfqs){
