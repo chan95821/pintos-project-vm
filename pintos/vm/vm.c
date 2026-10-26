@@ -125,9 +125,17 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
 
+
+	PANIC("todo");
+
+	palloc_free_page(victim->kva);
+	/**
+	 * Update corresponding page status -
+	 * using swap_out would be adeq
+	 */
 	return NULL;
 }
 
