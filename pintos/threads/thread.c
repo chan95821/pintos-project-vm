@@ -259,6 +259,13 @@ thread_create (const char *name, int priority,
 
 	#endif
 
+	#ifdef VM
+	if (!hash_init(spt, hash_func, hash_less, NULL)) {
+		palloc_free_page(t);
+		return TID_ERROR;
+	}
+	#endif
+
 	if(thread_mlfqs){
 		t->nice = thread_current()->nice;
 		t->recent_cpu = thread_current()->recent_cpu;

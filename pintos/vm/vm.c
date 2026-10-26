@@ -98,7 +98,8 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page *page = NULL;
 	struct page temp = {.va = va};
-	return hash_find(&spt->hash, &temp.element)?hash_entry(hash_find(&spt->hash, &temp.element), struct page, element):NULL;
+	struct hash_elem *element;
+	return (element = hash_find(&spt->hash, &temp.element)) ? hash_entry(element, struct page, element) : NULL;
 }
 
 /* Insert PAGE into spt with validation. */
@@ -277,10 +278,9 @@ hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
 	return hash_func(a,NULL) < hash_func(b,NULL);
 }
 /* Initialize new supplemental page table */
-void
+void // 이거 근데 안에 malloc이 있어서 bool 하던지 해줘야할 듯
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	struct thread *t = thread_current ();
-	hash_init(&t->spt.hash, hash_func, hash_less, NULL);
+	hash_init(spt, hash_func, hash_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
