@@ -204,7 +204,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	
-	if (addr_is_vaild (addr)) {
+	if (!addr_is_vaild (addr)) {
 		return false;           
 	} 
 
@@ -224,7 +224,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		return false;
 	}
 
-	return vm_do_claim_page(addr);
+	return vm_do_claim_page(page);
 	
 }
 
