@@ -97,7 +97,8 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page *page = NULL;
 	struct page temp = {.va = va};
-	return hash_find(&spt->hash, &temp.element)?hash_entry(hash_find(&spt->hash, &temp.element), struct page, element):NULL;
+	struct hash_elem *element;
+	return (element = hash_find(&spt->hash, &temp.element)) ? hash_entry(element, struct page, element) : NULL;
 }
 
 /* Insert PAGE into spt with validation. */
@@ -109,6 +110,7 @@ spt_insert_page (struct supplemental_page_table *spt,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(spt.hash, &page->element);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -267,8 +269,9 @@ vm_do_claim_page (struct page *page) {
 }
 
 /* Initialize new supplemental page table */
-void
+void // 이거 근데 안에 malloc이 있어서 bool 하던지 해줘야할 듯
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init(spt, hash_func, hash_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */

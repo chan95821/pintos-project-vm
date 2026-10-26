@@ -259,6 +259,19 @@ thread_create (const char *name, int priority,
 
 	#endif
 
+	#ifdef VM
+	// include 정리 필요
+	struct supplemental_page table *spt = malloc(sizeof(supplemental_page_table));
+	if (spt == NULL) {
+		palloc_free_page(t);
+		return TID_ERROR;
+	}
+	t->spt = spt;
+	supplemental_page_table_init (struct supplemental_page_table *spt UNUSED);
+	//exit 할 때 spt free랑 hash table free해야함
+
+	#endif
+
 	if(thread_mlfqs){
 		t->nice = thread_current()->nice;
 		t->recent_cpu = thread_current()->recent_cpu;
@@ -692,7 +705,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 		intr_set_level(old_level);
 	}
 
-	hash_init(&t->spt.hash, hash_func, hash_less, NULL);
+	// hash_init(&t->spt.hash, hash_func, hash_less, NULL);
 
 }
 
