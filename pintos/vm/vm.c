@@ -1,12 +1,15 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
 #include "threads/malloc.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 
 #define MAX_STACK_ADDR 0x47380000
 
+#define MAX_STACK_ADDR (USER_STACK - 1 << 20)
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -48,6 +51,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT);
+	upage = pg_round_down(upage);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
@@ -74,36 +78,32 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			}
 		}
 		/*struct page writeble 작성*/
+  	page->is_writable = writable; // type 무관
 
-		/* TODO: Insert the page into the spt. */
-		if (!spt_insert_page(spt, page)) {
-			free(page);
+    if(!spt_insert_page(spt, page)) {
 			goto err;
+		} else {
+			return true;
 		}
-
-		return true;
-	}
+		/* TODO: Insert the page into the spt. */
 err:
+	free(page);
 	return false;
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
+spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page *page = NULL;
-	/* TODO: Fill this function. */
-
-	return page;
+	struct page temp = {.va = va};
+	return hash_find(&spt->hash, &temp.element)?hash_entry(hash_find(&spt->hash, &temp.element), struct page, element):NULL;
 }
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
-	/* TODO: Fill this function. */
-
-	return succ;
+spt_insert_page (struct supplemental_page_table *spt,
+		struct page *page) {
+	return hash_insert(&spt->hash, &page->element)?0:1;
 }
 
 void
@@ -140,15 +140,19 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 
-	frame = malloc(sizeof(struct frame));
-	ASSERT (frame != NULL); /*malloc 실패시 커널 패닉 -> 원래 있었던 assert 방향에 맞춤*/
-	ft_insert_frame(frame);
-
-	if (frame->kva = palloc_get_page(PAL_USER) == NULL) {
-		panic("todo"); /*나중에 evition이 들어갈 자리 현재는 커널 패닉으로 막아놓음*/
+	void *kva = palloc_get_page(PAL_USER); 
+	if( kva == NULL) {
+		frame = vm_evict_frame();
 	}
-	frame->page = NULL;
+  else {
+  	frame = malloc(sizeof(*frame));
+  }
+  ASSERT (frame != NULL);
 
+	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
+
+	frame->kva = kva;
+	frame->page = NULL;
 	ASSERT (frame->page == NULL);
 
 	return frame;
@@ -182,39 +186,35 @@ addr_is_vaild (void * addr) { /*정리 필요*/
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
-		bool user UNUSED, bool write, bool not_present) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f , void *addr ,
+		bool user , bool write , bool not_present ) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	
 	if (addr_is_vaild (addr)) {
 		return false;           
-	}
+	} 
 
 	page = spt_find_page(spt, addr);
 
-	if (page) {
-		if (write && !page->perm.is_writable) {
-			return false;
-		} else if (not_present) {
-			return vm_do_claim_page(page);
+	if(page == NULL) {
+		//스택 접근 판단 로직 - tc 확인해봐야
+		if(addr >= rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+			return vm_stack_growth(addr); 
 		} else {
 			return false;
 		}
 	}
-	else {
-		// stack growth 조건 판단
-		if (addr >= rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
-			vm_stack_growth(addr);
-			page = spt_find_page(spt, addr);
-		} else {
-			return false;
-		}
 
-		return vm_do_claim_page(addr);
+	
+	if(!page->is_writable && write) {
+		return false;
 	}
+
+	return vm_do_claim_page(addr);
+	
 }
 
 /* Free the page.
@@ -244,12 +244,16 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	if (!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->page.perm.is_writable)) {
+
+	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->is_writable )) { // va, kva should be page aligned
 		palloc_free_page(frame->kva);
 		free(frame);
+		/** TODO: frame table 업데이트 로직 고민하기
+		 * cand 1. update frame table
+		 * cand 2. process might terminate if returned false. cleanup frames/pages in thread_exit procedure
+		 */
 		return false;
 	}
-
 	return swap_in (page, frame->kva);
 }
 
