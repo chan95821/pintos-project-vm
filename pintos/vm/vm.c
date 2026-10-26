@@ -110,7 +110,7 @@ spt_insert_page (struct supplemental_page_table *spt,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-	hash_delete(spt.hash, &page->element);
+	hash_delete(&spt->hash, &page->element);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -212,7 +212,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 
 	if(page == NULL) {
 		//스택 접근 판단 로직 - tc 확인해봐야
-		if(addr >= rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+		if(addr >= thread_current ()->user_rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
 			return vm_stack_growth(addr); 
 		} else {
 			return false;
@@ -268,10 +268,9 @@ vm_do_claim_page (struct page *page) {
 	return swap_in (page, frame->kva);
 }
 
-/* Initialize new supplemental page table */
-void // 이거 근데 안에 malloc이 있어서 bool 하던지 해줘야할 듯
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	hash_init(spt, hash_func, hash_less, NULL);
+/* Deprecated / Initialize new supplemental page table */
+void
+supplemental_page_table_init (struct supplemental_page_table *spt ) {
 }
 
 /* Copy supplemental page table from src to dst */
