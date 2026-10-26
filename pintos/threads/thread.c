@@ -652,15 +652,7 @@ kernel_thread (thread_func *function, void *aux) {
 	thread_exit ();       /* If function() returns, kill the thread. */
 }
 
-uint64_t
-hash_func (struct hash_elem *elem, void *aux) {
-	return (uint64_t)hash_entry(elem, struct page, element)->va>>12;
-}
 
-bool
-hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
-	return hash_func(a,NULL) < hash_func(b,NULL);
-}
 
 /* Does basic initialization of T as a blocked thread named
    NAME. */
@@ -691,8 +683,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 		list_push_front(&all_list, &(t->all));
 		intr_set_level(old_level);
 	}
-
-	hash_init(&t->spt.hash, hash_func, hash_less, NULL);
 
 }
 

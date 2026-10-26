@@ -42,7 +42,8 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
-
+bool hash_less (struct hash_elem *a, struct hash_elem *b, void *aux);
+uint64_t hash_func (struct hash_elem *elem, void *aux);
 /* Create the pending page object with initializer and insert page to spt. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
@@ -109,6 +110,7 @@ spt_insert_page (struct supplemental_page_table *spt,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(&spt->hash, &page->element);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -210,7 +212,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 
 	if(page == NULL) {
 		//스택 접근 판단 로직 - tc 확인해봐야
-		if(addr >= rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+		if(addr >= thread_current ()->rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
 			return vm_stack_growth(addr); 
 		} else {
 			return false;
@@ -265,10 +267,20 @@ vm_do_claim_page (struct page *page) {
 	}
 	return swap_in (page, frame->kva);
 }
+uint64_t
+hash_func (struct hash_elem *elem, void *aux) {
+	return (uint64_t)hash_entry(elem, struct page, element)->va>>12;
+}
 
+bool
+hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
+	return hash_func(a,NULL) < hash_func(b,NULL);
+}
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	struct thread *t = thread_current ();
+	hash_init(&t->spt.hash, hash_func, hash_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
