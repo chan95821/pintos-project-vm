@@ -71,7 +71,7 @@ struct frame {
 struct file_src {
 	off_t offset;
 	uint32_t read_bytes;
-}
+};
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
@@ -117,5 +117,5 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
-
+bool vm_stack_growth (void *addr);
 #endif  /* VM_VM_H */

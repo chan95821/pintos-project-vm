@@ -987,6 +987,16 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	
+	success = vm_stack_growth(stack_bottom);
+
+	if (success) {
+		if_->rsp = USER_STACK;
+	} else {
+		return success;
+	}
+
+	memset(stack_bottom, 0, PGSIZE);
 
 	return success;
 }
