@@ -2,9 +2,11 @@
 
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
+#define MAX_STACK_ADDR (USER_STACK - 1 << 20)
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -45,8 +47,9 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
+	upage = pg_round_down(upage);
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
-
+	struct page *new_page;
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
@@ -54,10 +57,31 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		bool (*initializer)(struct page *, enum vm_type, void *kva);
+		new_page = calloc(sizeof(*new_page), 1);
 
+		switch(type) {
+			case VM_ANON:
+				initializer = anon_initializer;
+				break;
+			case VM_FILE:
+				initializer = file_backed_initializer;
+				break;
+		}
+
+		uninit_new(new_page, upage, init, type, aux, initializer);
+		new_page->is_writable = writable; // type 무관
+	
+
+		if(!spt_insert_page(spt, new_page)) {
+			goto err;
+		} else {
+			return true;
+		}
 		/* TODO: Insert the page into the spt. */
 	}
 err:
+	free(new_page);
 	return false;
 }
 
@@ -110,6 +134,17 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 
+	void *kva = palloc_get_page(PAL_USER); 
+	if( kva == NULL) {
+		frame = vm_evict_frame(); 
+	}
+
+	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
+
+	frame = malloc(sizeof(*frame));
+	frame->kva = kva;
+	frame->page = NULL;
+
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
@@ -117,7 +152,14 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	// TODO: load 인자 전달에도 함수 사용할지 결정
+	char *page_addr = pg_round_down(addr);
+	if(page_addr <= USER_STACK - PGSIZE) {
+		if(!vm_alloc_page(VM_ANON, page_addr, true)) {
+			thread_exit();
+		}
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -127,12 +169,37 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f , void *addr ,
+		bool user , bool write , bool not_present ) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	
+	if(is_kernel_vaddr(addr)) { // TODO: addr 확인 함수로 교체하기
+		return false;
+	} 
+
+	page = spt_find_page(spt, addr);
+
+	if(page == NULL) {
+		//스택 접근 판단 로직 - tc 확인해봐야
+		if(addr >= rsp - 8 && addr > MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+			vm_stack_growth(addr); 
+			
+			page = spt_find_page(spt, addr);
+			if(!page) {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+
+	
+	if(!page->is_writable && write) {
+		return false;
+	}
 
 	return vm_do_claim_page (page);
 }
@@ -165,6 +232,15 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 
+	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable )) { // va, kva should be page aligned
+		
+		free(frame);
+		/**
+		 * cand 1. update frame table
+		 * cand 2. process might terminate if returned false. cleanup frames/pages in thread_exit procedure
+		 */
+		return false;
+	}
 	return swap_in (page, frame->kva);
 }
 
