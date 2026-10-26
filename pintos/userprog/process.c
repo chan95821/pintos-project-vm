@@ -919,6 +919,11 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* do_claim_page에서 palloc시 PAL_ZERO flag를 붙여주지 않으므로, 나머지를 0으로 memset*/
 	memset(kva + read_bytes, 0, zero_bytes); 
 
+
+	free(aux); 
+	/* TODO: 현재 구현은 swap out시 실제 파일 아니라 swap slot 이동, 
+	 *swap out하지 말고 file aux 유지할지 결정
+	 */
 	return true;
 	
 }
@@ -952,7 +957,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		struct file_src *aux = NULL;
+
+		aux = malloc(sizeof(struct file_src));
+
+		aux->offset = ofs;
+		aux->read_bytes = read_bytes;
+		
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;
@@ -961,6 +972,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }

@@ -59,6 +59,7 @@ struct page {
 		struct page_cache page_cache;
 #endif
 	};
+	bool is_writable;
 };
 
 /* The representation of "frame" */
@@ -66,6 +67,11 @@ struct frame {
 	void *kva;
 	struct page *page;
 };
+
+struct file_src {
+	off_t offset;
+	uint32_t read_bytes;
+}
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
