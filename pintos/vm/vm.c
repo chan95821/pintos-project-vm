@@ -187,12 +187,12 @@ static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
 
-static bool
-addr_is_vaild (void * addr) { /*정리 필요*/
+bool
+addr_isnt_user_vaild (void * addr) {
 	if (0x400000 > addr || addr >= USER_STACK) {
-		return false;
+		return true;
 	}
-	return true;
+	return false;
 }
 
 /* Return true on success */
@@ -204,7 +204,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	
-	if (!addr_is_vaild (addr)) {
+	if (addr_isnt_user_vaild (addr)) {
 		return false;           
 	} 
 
