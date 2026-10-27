@@ -909,13 +909,18 @@ lazy_load_segment (struct page *page, void *aux) {
 
 
 	uint32_t zero_bytes = PGSIZE - read_bytes;
-
+	bool lock_prev_status = false;
+	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
+		lock_release(&file_lock);
+	}
 	lock_acquire(&file_lock);
 	if(file_read_at(t->running_file, kva, read_bytes, file_meta->offset) != read_bytes) {
 		return false;
 	}
 	lock_release(&file_lock);
-
+	if(lock_prev_status) {
+		lock_acquire(&file_lock);
+	}
 	/* do_claim_page에서 palloc시 PAL_ZERO flag를 붙여주지 않으므로, 나머지를 0으로 memset*/
 	memset(kva + read_bytes, 0, zero_bytes); 
 
