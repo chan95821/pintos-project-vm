@@ -9,7 +9,7 @@
 
 #define MAX_STACK_ADDR 0x47380000
 
-#define MAX_STACK_ADDR (USER_STACK - 1 << 20)
+#define MAX_STACK_ADDR (USER_STACK - (1 << 20))
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
