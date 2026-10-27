@@ -188,7 +188,7 @@ vm_handle_wp (struct page *page UNUSED) {
 }
 
 bool
-addr_isnt_vaild (void * addr) {
+addr_isnt_user_vaild (void * addr) {
 	if (0x400000 > addr || addr >= USER_STACK) {
 		return true;
 	}
@@ -204,7 +204,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	
-	if (addr_isnt_vaild (addr)) {
+	if (addr_isnt_user_vaild (addr)) {
 		return false;           
 	} 
 

@@ -147,7 +147,7 @@ static void
 sys_fork (struct intr_frame *f) {
 	char *fname = (void *)f->R.rdi;	
 	
-	if(fname == NULL || addr_isnt_vaild(fname)) {
+	if(fname == NULL || addr_isnt_user_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -199,7 +199,7 @@ sys_create (struct intr_frame *f) {
 	char *fname = (char *)f->R.rdi;
 	unsigned int initsize = f->R.rsi;
 	
-	if (fname == '\0'  || addr_isnt_vaild(fname)) {
+	if (fname == '\0'  || addr_isnt_user_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -218,7 +218,7 @@ static void
 sys_remove (struct intr_frame *f) {
 	char *fname = (char *)f->R.rdi;
 
-	if(fname == NULL || addr_isnt_vaild(fname)) {
+	if(fname == NULL || addr_isnt_user_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -239,7 +239,7 @@ sys_open (struct intr_frame *f) {
 
 	struct file *file;
 
-	if(fname == NULL || addr_isnt_vaild(fname)) {
+	if(fname == NULL || addr_isnt_user_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -538,7 +538,7 @@ static bool is_invaild_filename(char * filename){
 
 static bool is_valid_buffer(char *buffer, int size, void *arg) {
 	struct thread *curr = thread_current();
-	if (buffer == arg || addr_isnt_vaild(buffer + size)) {
+	if (buffer == arg || addr_isnt_user_vaild(buffer + size)) {
 		return false;
 	}
 	return true;
