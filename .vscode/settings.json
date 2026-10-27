@@ -1,6 +1,6 @@
 {
     "pintos.projects": ["threads", "userprog", "vm", "ALL"],
-    "pintos.project": 1,
+    "pintos.project": 2,
     "pintos.testShortcutEnabled": true,
     "C_Cpp.default.defines": [
         "USERPROG",

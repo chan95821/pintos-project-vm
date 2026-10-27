@@ -56,4 +56,6 @@
 	((uint64_t) (vaddr) - (uint64_t) KERN_BASE);\
 })
 
+bool addr_isnt_vaild (void * addr);
+
 #endif /* threads/vaddr.h */

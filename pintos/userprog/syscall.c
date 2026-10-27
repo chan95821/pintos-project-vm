@@ -17,6 +17,7 @@
 #include "filesys/filesys.h"
 #include "devices/input.h"
 #include "threads/palloc.h"
+#include "vm/vm.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -146,7 +147,7 @@ static void
 sys_fork (struct intr_frame *f) {
 	char *fname = (void *)f->R.rdi;	
 	
-	if(fname == NULL || is_kernel_vaddr(fname)) {
+	if(fname == NULL || addr_isnt_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -198,7 +199,7 @@ sys_create (struct intr_frame *f) {
 	char *fname = (char *)f->R.rdi;
 	unsigned int initsize = f->R.rsi;
 	
-	if (fname == '\0'  || is_kernel_vaddr(fname)) {
+	if (fname == '\0'  || addr_isnt_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -217,7 +218,7 @@ static void
 sys_remove (struct intr_frame *f) {
 	char *fname = (char *)f->R.rdi;
 
-	if(fname == NULL || is_kernel_vaddr(fname)) {
+	if(fname == NULL || addr_isnt_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -238,7 +239,7 @@ sys_open (struct intr_frame *f) {
 
 	struct file *file;
 
-	if(fname == NULL || is_kernel_vaddr(fname)) {
+	if(fname == NULL || addr_isnt_vaild(fname)) {
 		thread_current()->exit_status = -1;
 		thread_exit();
 	}
@@ -537,7 +538,7 @@ static bool is_invaild_filename(char * filename){
 
 static bool is_valid_buffer(char *buffer, int size, void *arg) {
 	struct thread *curr = thread_current();
-	if (buffer == arg || is_kernel_vaddr(buffer + size) || pml4_get_page(curr->pml4, buffer) == NULL) {
+	if (buffer == arg || addr_isnt_vaild(buffer + size)) {
 		return false;
 	}
 	return true;
