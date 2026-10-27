@@ -159,10 +159,17 @@ sub compare_output {
 	@output = grep (!/^Page fault at.*in user context\.$/
 			&& !/: dying due to interrupt 0x0e \(.*\).$/
 			&& !/^Interrupt 0x0e \(.*\) at eip=/
+			&& !/^Interrupt 0x0e \(.*\) at rip=[0-9a-f]+$/
 			&& !/^ cr2=.* error=.*/
 			&& !/^ eax=.* ebx=.* ecx=.* edx=.*/
 			&& !/^ esi=.* edi=.* esp=.* ebp=.*/
-			&& !/^ cs=.* ds=.* es=.* ss=.*/, @output);
+			&& !/^ cs=.* ds=.* es=.* ss=.*/
+			&& !/^rax [0-9a-f]+ rbx [0-9a-f]+ rcx [0-9a-f]+ rdx [0-9a-f]+$/
+			&& !/^rsp [0-9a-f]+ rbp [0-9a-f]+ rsi [0-9a-f]+ rdi [0-9a-f]+$/
+			&& !/^rip [0-9a-f]+ r8 [0-9a-f]+\s+r9 [0-9a-f]+ r10 [0-9a-f]+$/
+			&& !/^r11 [0-9a-f]+ r12 [0-9a-f]+ r13 [0-9a-f]+ r14 [0-9a-f]+$/
+			&& !/^r15 [0-9a-f]+ rflags [0-9a-f]+$/
+			&& !/^es: [0-9a-f]+ ds: [0-9a-f]+ cs: [0-9a-f]+ ss: [0-9a-f]+$/, @output);
     }
     die "unknown option " . (keys (%options))[0] . "\n" if %options;
 
