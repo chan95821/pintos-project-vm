@@ -8,7 +8,7 @@
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
 #include "lib/string.h"
-
+#include <debug.h>
 #define MAX_STACK_ADDR 0x47380000
 
 #define MAX_STACK_ADDR (USER_STACK - (1 << 20))
@@ -288,53 +288,119 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	return true;
 }
 
+
+static bool 
+page_copy_uninit (struct page *dst, struct page *src) {
+	ASSERT(src->frame == NULL);
+	dst->uninit.aux = NULL;
+
+	struct file_src *new_aux = NULL;
+	new_aux = malloc(sizeof(*new_aux));
+
+	if(new_aux == NULL) {
+		return false;
+	}
+
+	memcpy(new_aux, src->uninit.aux, sizeof(*new_aux));
+	dst->uninit.aux = new_aux;
+	return true;
+}
+
+static bool 
+page_copy_anon (struct page *dst, struct page *src) {
+
+	if(src->frame == NULL) {
+		PANIC("todo. invoked on swapped out cxt");
+	}
+	return true;
+}
+
+static bool 
+page_copy_file_backed (struct page *dst, struct page *src) {
+	PANIC("todo. invoked on VM_FILE");
+}
+
+static struct page *
+page_copy(struct supplemental_page_table *dst, struct page *src_page) {
+	// 뭐 해야되냐 : 새 페이지 주소 반환한다. 아니면 페이지 깨끗이 정리해야 함
+	struct page *new_page = NULL;
+	new_page = malloc(sizeof(*new_page));
+
+	if(new_page == NULL) {
+		goto page_err;
+	}
+
+	memcpy(new_page, src_page, sizeof(*src_page));
+	new_page->frame = NULL;
+
+	if(src_page->frame != NULL) {
+		struct frame *new_frame = vm_get_frame();
+		ASSERT(new_frame != NULL);
+
+		new_page->frame = new_frame;
+		new_frame->page = new_page;
+
+		if(!pml4_set_page(thread_current ()->pml4, new_page->va, new_frame->kva, new_page->is_writable)) {
+			goto frame_err;
+		}
+		memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
+	}
+
+	enum vm_type type = src_page->operations->type;
+	switch(type) {
+		case VM_UNINIT:
+			if(!page_copy_uninit(new_page, src_page)) {
+				goto frame_err;
+			}
+			break;
+		case VM_ANON:
+			if(!page_copy_anon(new_page, src_page)) {
+				goto frame_err;
+			}
+			break;
+		case VM_FILE:
+			if(!page_copy_file_backed(new_page, src_page)) {
+				goto frame_err;
+			}
+			break;
+	}
+
+	return new_page;
+
+frame_err:
+	free(new_page->frame);
+page_err:
+	free(new_page);
+	return NULL;
+}
+
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
-	struct supplemental_page_table *src) {
+	struct supplemental_page_table *src) {	
 
+	struct page *new_page = NULL;
 	struct hash_iterator i;
 	hash_first (&i, &src->hash);
-
-	while (hash_next (&i)) {
-		struct page *page = malloc(sizeof(struct page));
-		if(page == NULL) {
-			return false;
-		}
-		memcpy(page, hash_entry (hash_cur (&i), struct page, element), sizeof(*page));
-
-		if( page->frame != NULL ) {
-			
-			struct frame *new_frame;
-			if (!(new_frame = vm_get_frame())) {
-				return false;
-			}
-			memcpy(new_frame->kva, page->frame->kva, PGSIZE);
-			page->frame = new_frame;
-			new_frame->page = page;
-			pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->is_writable);
-		} else {
-			enum vm_type type = page->operations->type;
-			if(type == VM_UNINIT) {
-				struct file_src *new_aux = NULL;
-				new_aux = malloc(sizeof(*new_aux));
-
-				if(new_aux == NULL) {
-					return false;
-				}
-
-				memcpy(new_aux, page->uninit.aux, sizeof(*new_aux));
-				page->uninit.aux = new_aux;
-			} else if (type == VM_ANON) {
-				PANIC("todo. invoked on swapped out cxt");
-			} else if (type == VM_FILE) {
-				PANIC("todo. invoked on VM_FILE");
-			}
+	
+	while(hash_next (&i)) {
+		struct page *src_page = hash_entry (hash_cur (&i), struct page, element);	
+		if(!(new_page = page_copy(dst, src_page))) {
+			goto err_spt;
 		}
 
-		hash_insert(&dst->hash, &page->element);
+		if(!spt_insert_page(dst, new_page)) {
+			goto err_page;
+		}
 	}
 	return true;
+
+err_page:
+	destroy(new_page);
+	free(new_page);
+err_spt:
+	supplemental_page_table_kill(dst);
+	return false;
 }
 
 static void
@@ -343,7 +409,7 @@ spt_free_page (struct hash_elem *e, void *aux) {
 	vm_dealloc_page(page);
 }
 
-/* Free the resource hold by the supplemental page table. process_exit시에는 hash_destroy 해줘야 함 */
+/* Free the resource hold by the supplemental page table. process_exit시에는 hash_destroy 해줘야 함. pml4 매핑을 해제하지는 않음 */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and */
