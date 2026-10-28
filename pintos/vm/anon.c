@@ -22,7 +22,18 @@ static const struct page_operations anon_ops = {
 void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
+		ASSERT(PGSIZE % DISK_SECTOR_SIZE == 0);
+
 	swap_disk = NULL;
+
+	// swap_disk = disk_get(1, 1);
+	// // sector 단위(DISK_SECTOR_SIZE bytes) 로 읽고 써야함. PGSIZE와 sector size가 2 거듭제곱이고, PGSIZE가 더 크기 때문에 섹터로 나눠떨어짐
+
+	// // initialize swap table
+	// size_t partition_size = disk_size(swap_disk) * DISK_SECTOR_SIZE; // in sector
+	// size_t swap_slot_cnt = partition_size / PGSIZE;
+
+
 }
 
 /* Initialize the file mapping */
@@ -64,7 +75,6 @@ anon_destroy (struct page *page) {
 	if(page->frame == NULL) {
 		PANIC("todo, after swap Impl. Abnormal if no swapped out frames");
 	} else {
-
 		free(page->frame);
 	}
 }
