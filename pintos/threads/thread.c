@@ -101,15 +101,7 @@ static tid_t allocate_tid (void);
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
-uint64_t
-hash_func (struct hash_elem *elem, void *aux) {
-	return (uint64_t)hash_entry(elem, struct page, element)->va>>12;
-}
 
-bool
-hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
-	return hash_func(a,NULL) < hash_func(b,NULL);
-}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -270,7 +262,7 @@ thread_create (const char *name, int priority,
 	#endif
 
 	#ifdef VM
-	if (!hash_init(&t->spt, hash_func, hash_less, NULL)) {
+	if (!supplemental_page_table_init(&t->spt)) {
 		palloc_free_page(t);
 		return TID_ERROR;
 	}

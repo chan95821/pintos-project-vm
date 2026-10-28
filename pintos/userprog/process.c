@@ -21,6 +21,7 @@
 #include "threads/malloc.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+#include "lib/kernel/hash.h"
 
 #ifdef VM
 #include "vm/vm.h"
@@ -83,7 +84,9 @@ process_create_initd (const char *file_name) {
 static void
 initd (void *f_name) {
 #ifdef VM
-	supplemental_page_table_init (&thread_current ()->spt);
+	if(!supplemental_page_table_init (&thread_current ()->spt)) {
+		thread_exit();
+	}
 #endif
 
 	struct fd_info *stdin_info;
@@ -326,6 +329,7 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	struct thread *t = thread_current ();
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -474,6 +478,7 @@ process_exit (void) {
 	intr_set_level(old_level);
 
 	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
+	hash_destroy(&(curr->spt.hash), NULL);
 }
 
 /* Free the current process's resources. */
