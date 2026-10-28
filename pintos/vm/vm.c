@@ -7,6 +7,7 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include <string.h>
 
 #define MAX_STACK_ADDR 0x47380000
 
@@ -286,10 +287,53 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	}
 	return true;
 }
+
+static struct page *
+spt_copy_page (struct supplemental_page_table *dst, struct page *page) {
+	enum vm_type type = page->operations->type;
+	/*나중에 마커 비트 넣어줄 거면 그것도 같이 해야함*/
+	if(type == VM_UNINIT) {
+		/*vm_uninit해줘야함*/
+		vm_alloc_page_with_initializer(page->uninit.type, page->va, page->is_writable);
+	} else (vm_alloc_page(page->operations->type, page->va, page->is_writable)) {
+		return spt_find_page(dst, page->va);
+	}
+	return NULL;
+}
+
+static struct frame *
+spt_copy_frame (struct page *page) {
+	struct frame *new_frame;
+	if (new_frame = vm_get_frame()) {
+		memcpy(new_frame->kva, page->frame->kva, PGSIZE);
+		return new_frame;
+	}
+	return NULL;
+}
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+	/*hash 순회*/
+	struct hash_iterator i;
+	struct page *page = NULL;
+	struct hash_elem *curr;
+	struct frame * new_frame;
+	struct page *new_page;
+
+	hash_first(&i, src);
+
+	while (curr = hash_next(&i)) {
+		/*여기서 복사 처리*/
+		page = hash_entry(curr, struct page, element);
+		if (new_page = spt_copy_page(dst, page)) {
+			if ((page->frame == NULL) || (new_page->frame = spt_copy_frame(page))) {
+				continue;
+			}
+		}
+		return false;
+	}
+	
 }
 
 static void
