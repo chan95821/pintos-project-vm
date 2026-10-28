@@ -21,6 +21,7 @@
 #include "threads/malloc.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+#include "lib/kernel/hash.h"
 
 #ifdef VM
 #include "vm/vm.h"
@@ -83,7 +84,9 @@ process_create_initd (const char *file_name) {
 static void
 initd (void *f_name) {
 #ifdef VM
-	supplemental_page_table_init (&thread_current ()->spt);
+	if(!supplemental_page_table_init (&thread_current ()->spt)) {
+		thread_exit();
+	}
 #endif
 
 	struct fd_info *stdin_info;
@@ -326,6 +329,7 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	struct thread *t = thread_current ();
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -474,6 +478,7 @@ process_exit (void) {
 	intr_set_level(old_level);
 
 	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
+	hash_destroy(&(curr->spt.hash), NULL);
 }
 
 /* Free the current process's resources. */
@@ -909,13 +914,18 @@ lazy_load_segment (struct page *page, void *aux) {
 
 
 	uint32_t zero_bytes = PGSIZE - read_bytes;
-
+	bool lock_prev_status = false;
+	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
+		lock_release(&file_lock);
+	}
 	lock_acquire(&file_lock);
 	if(file_read_at(t->running_file, kva, read_bytes, file_meta->offset) != read_bytes) {
 		return false;
 	}
 	lock_release(&file_lock);
-
+	if(lock_prev_status) {
+		lock_acquire(&file_lock);
+	}
 	/* do_claim_page에서 palloc시 PAL_ZERO flag를 붙여주지 않으므로, 나머지를 0으로 memset*/
 	memset(kva + read_bytes, 0, zero_bytes); 
 
