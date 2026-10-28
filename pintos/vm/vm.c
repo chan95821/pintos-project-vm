@@ -288,77 +288,101 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	return true;
 }
 
-static struct page *
-spt_copy_page (struct page *src_page) {
-	struct page *new_page;
-	if ((new_page = malloc(sizeof(struct page))) == NULL) {
-		return NULL;
+static void
+copy_error_free_memory (struct page *dst_page) {
+	if (dst_page->operations->type == VM_UNINIT && dst_page->uninit.aux != NULL) {
+		free(dst_page->uninit.aux);
 	}
-	memcpy(new_page, src_page, sizeof(struct page));
-	return new_page;
+	if (dst_page->frame != NULL) {
+		palloc_free_page(dst_page->frame->kva);
+		free(dst_page->frame);
+	}
+	free(dst_page);
 }
 
-static struct page *
-spt_copy_uninit_page(struct page *src_page) {
-	struct page *new_page;
-	if (!(new_page = spt_copy_page(src_page))) {
-		return NULL;
+static bool
+page_copy_uninit(struct page *dst_page, struct page *src_page) {
+	memcpy(dst_page, src_page, sizeof(struct page));
+
+	if(src_page->uninit.aux == NULL) {
+		return true;
 	}
+
+	dst_page->uninit.aux = NULL;
 	struct file_src *aux = malloc(sizeof(struct file_src));
 	if (!aux) {
-		free(new_page);
-		return NULL;
+		return false;
 	}
 	memcpy(aux, src_page->uninit.aux, sizeof(struct file_src));
-	new_page->uninit.aux = aux;
-	return new_page;
+	dst_page->uninit.aux = aux;
+	return true;
 }
 
 static bool
-spt_copy_uninit (struct supplemental_page_table *dst, struct page *src_page) {
-	struct page *new_page;
-	if ((new_page = spt_copy_uninit_page(src_page))) {
-		if (spt_insert_page(dst, new_page)) {
-			return true;
-		}
-		free(new_page->uninit.aux);
-		free(new_page);
-	}
-	return false;
-}
+page_copy_anon(struct page *dst_page, struct page *src_page) {
+	memcpy(dst_page, src_page, sizeof(struct page));
+	dst_page->frame = NULL;
 
-static bool
-spt_link_new_spt (struct supplemental_page_table *dst, struct page *new_page) {
-	if (spt_insert_page(dst, new_page)) {
-		if (pml4_set_page(thread_current()->pml4, new_page->va, new_page->frame->kva, new_page->is_writable)) {
-			return true;
-		}
-		palloc_free_page(new_page->frame->kva);
-		spt_remove_page(dst, new_page);
-	}
-	else {
-		palloc_free_page(new_page->frame->kva);
-		free(new_page->frame);
-		free(new_page);
-	}
-	return false;
-}
-
-static struct page *
-spt_copy_page_and_frame (struct page *src_page) {
-
-	struct page *new_page;
 	struct frame *new_frame;
-	if ((new_page = spt_copy_page(src_page)) == NULL) {
+	if (!(new_frame = vm_get_frame())) {
+		return false;
+	}
+		
+	new_frame->page = dst_page;
+	dst_page->frame = new_frame;
+	memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
+	return true;
+}
+
+static bool
+page_copy_file_backed(struct page *dst_page, struct page *src_page) {
+	return false;
+}
+
+
+static struct page * 
+page_copy(struct page *src_page) {
+	struct page *dst_page;
+	if ((dst_page = malloc(sizeof(struct page))) == NULL) {
 		return NULL;
 	}
-	if ((new_frame = vm_get_frame())) {
-		new_frame->page = new_page;
-		new_page->frame = new_frame;
-		memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
-		return new_page;
+	switch (src_page->operations->type) {
+		case VM_UNINIT: {
+			if (!page_copy_uninit(dst_page, src_page)) {
+				goto error;
+			}
+			break;
+		}
+		case VM_ANON: {
+			/*TODO: eviction 구현*/
+			if (!page_copy_anon(dst_page, src_page)) {
+				goto error;
+			}
+			break;
+		}
+		case VM_FILE: {
+			/*TODO: mmap 구현*/
+			if (!page_copy_file_backed(dst_page, src_page)) {
+				goto error;
+			}
+			break;
+		}
+		default: {
+			free(dst_page);
+			return NULL;
+		}
 	}
-	free(new_page);
+
+	if (dst_page->frame != NULL) {
+		if (!pml4_set_page(thread_current()->pml4, dst_page->va, dst_page->frame->kva, dst_page->is_writable)) {
+			goto error;
+		}
+	}
+
+	return dst_page;
+
+error : 
+	copy_error_free_memory(dst_page);
 	return NULL;
 }
 
@@ -367,35 +391,24 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 	struct hash_iterator i;
 	struct hash_elem *curr;
-
-	struct page *src_page;
-	struct page *new_page;
+	struct page *dst_page;
 
 	hash_first(&i, &src->hash);
-	while ((curr = hash_next(&i))) {
-		src_page = hash_entry(curr, struct page, element);
-		if (src_page->frame != NULL) {
-			if (!(new_page = spt_copy_page_and_frame(src_page)) || !spt_link_new_spt(dst, new_page)) {
-				return false;
+	while ((curr = hash_next(&i))){
+		if (!(dst_page = page_copy(hash_entry(curr, struct page, element)))){
+			return false;
+		}
+		if (!spt_insert_page(dst, dst_page)){
+			if (dst_page->operations->type == VM_UNINIT && dst_page->uninit.aux != NULL){
+				free(dst_page->uninit.aux);
 			}
-		} else {
-			switch (src_page->operations->type) {
-				case VM_UNINIT : {
-					if (!spt_copy_uninit(dst, src_page)) {
-						return false;
-					}
-					break;
-				}
-				case VM_ANON : {
-				/*TODO: eviction 구현*/
-				}
-				case VM_FILE : {
-				/*TODO: mmap 구현*/
-				}
-				default : {
-					return false;
-				}
+			if (dst_page->frame != NULL){
+				pml4_clear_page(thread_current()->pml4, dst_page->va);
+  				palloc_free_page(dst_page->frame->kva);
+				free(dst_page->frame);
 			}
+			free(dst_page);
+			return false;
 		}
 	}
 	return true;
