@@ -60,4 +60,11 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	// destroy에서 frame NULL인 분기에 대해 PANIC("todo") 넣기
+	if(page->frame == NULL) {
+		PANIC("todo, after swap Impl. Abnormal if no swapped out frames");
+	} else {
+
+		free(page->frame);
+	}
 }

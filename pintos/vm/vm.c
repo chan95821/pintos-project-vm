@@ -6,6 +6,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/mmu.h"
+#include "lib/kernel/hash.h"
 
 #define MAX_STACK_ADDR 0x47380000
 
@@ -43,6 +44,15 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
+static uint64_t
+hash_func (struct hash_elem *elem, void *aux) {
+	return (uint64_t)hash_entry(elem, struct page, element)->va>>12;
+}
+
+static bool
+hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
+	return hash_func(a,NULL) < hash_func(b,NULL);
+}
 /* Create the pending page object with initializer and insert page to spt. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
@@ -241,7 +251,7 @@ bool
 vm_claim_page (void *va) {
 	struct page *page = spt_find_page(&thread_current()->spt, va);
 	/* TODO: Fill this function */
-	
+
 	return vm_do_claim_page (page);
 }
 
@@ -268,20 +278,33 @@ vm_do_claim_page (struct page *page) {
 	return swap_in (page, frame->kva);
 }
 
-/* Deprecated / Initialize new supplemental page table */
-void
+/* Initialize new supplemental page table */
+bool
 supplemental_page_table_init (struct supplemental_page_table *spt ) {
+	if (!hash_init(spt, hash_func, hash_less, NULL)) {
+		return false;
+	}
+	return true;
 }
-
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 }
 
-/* Free the resource hold by the supplemental page table */
+static void
+spt_free_page (struct hash_elem *e, void *aux) {
+	struct page *page = hash_entry(e, struct page, element);
+	vm_dealloc_page(page);
+}
+
+/* Free the resource hold by the supplemental page table. process_exit시에는 hash_destroy 해줘야 함 */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
+	/* TODO: Destroy all the supplemental_page_table hold by thread and */
+	hash_clear(&spt->hash, spt_free_page);
+
+	/* TODO: writeback all the modified contents to the storage. */ 
+		// 아직까지는 file backed 타입 없음, 후순위
+
 }
