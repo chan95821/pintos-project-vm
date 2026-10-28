@@ -118,9 +118,9 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
-	struct fork_args *args = malloc(sizeof(struct fork_args));
+	struct fork_args *args = malloc(sizeof(struct fork_args)); // TODO: 제안 - sema down 하므로 malloc 필요 없음
 	if (args == NULL) {
 		return TID_ERROR;
 	}

@@ -7,6 +7,7 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include "lib/string.h"
 
 #define MAX_STACK_ADDR 0x47380000
 
@@ -286,10 +287,54 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	}
 	return true;
 }
+
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+	struct supplemental_page_table *src) {
+
+	struct hash_iterator i;
+	hash_first (&i, &src->hash);
+
+	while (hash_next (&i)) {
+		struct page *page = malloc(sizeof(struct page));
+		if(page == NULL) {
+			return false;
+		}
+		memcpy(page, hash_entry (hash_cur (&i), struct page, element), sizeof(*page));
+
+		if( page->frame != NULL ) {
+			
+			struct frame *new_frame;
+			if (!(new_frame = vm_get_frame())) {
+				return false;
+			}
+			memcpy(new_frame->kva, page->frame->kva, PGSIZE);
+			page->frame = new_frame;
+			new_frame->page = page;
+			pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->is_writable);
+		} else {
+			enum vm_type type = page->operations->type;
+			if(type == VM_UNINIT) {
+				struct file_src *new_aux = NULL;
+				new_aux = malloc(sizeof(*new_aux));
+
+				if(new_aux == NULL) {
+					return false;
+				}
+
+				memcpy(new_aux, page->uninit.aux, sizeof(*new_aux));
+				page->uninit.aux = new_aux;
+			} else if (type == VM_ANON) {
+				PANIC("todo. invoked on swapped out cxt");
+			} else if (type == VM_FILE) {
+				PANIC("todo. invoked on VM_FILE");
+			}
+		}
+
+		hash_insert(&dst->hash, &page->element);
+	}
+	return true;
 }
 
 static void
