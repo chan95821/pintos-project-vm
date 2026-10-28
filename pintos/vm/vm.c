@@ -288,96 +288,117 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	return true;
 }
 
-// static struct page *
-// spt_copy_page (struct supplemental_page_table *dst, struct page *page) {
-// 	enum vm_type type = page->operations->type;
-// 	/*나중에 마커 비트 넣어줄 거면 그것도 같이 해야함*/
-// 	if(type == VM_UNINIT) {
-// 		/*vm_uninit해줘야함*/
-// 		vm_alloc_page_with_initializer(page->uninit.type, page->va, page->is_writable);
-// 	} else (vm_alloc_page(page->operations->type, page->va, page->is_writable)) {
-// 		return spt_find_page(dst, page->va);
-// 	}
-// 	return NULL;
-// }
+static struct page *
+spt_copy_page (struct page *src_page) {
+	struct page *new_page;
+	if ((new_page = malloc(sizeof(struct page))) == NULL) {
+		return NULL;
+	}
+	memcpy(new_page, src_page, sizeof(struct page));
+	return new_page;
+}
 
-// static struct frame *
-// spt_copy_frame (struct page *page) {
-// 	struct frame *new_frame;
-// 	if (new_frame = vm_get_frame()) {
-// 		memcpy(new_frame->kva, page->frame->kva, PGSIZE);
-// 		return new_frame;
-// 	}
-// 	return NULL;
-// }
+static struct page *
+spt_copy_uninit_page(struct page *src_page) {
+	struct page *new_page;
+	if (!(new_page = spt_copy_page(src_page))) {
+		return NULL;
+	}
+	struct file_src *aux = malloc(sizeof(struct file_src));
+	if (!aux) {
+		free(new_page);
+		return NULL;
+	}
+	memcpy(aux, src_page->uninit.aux, sizeof(struct file_src));
+	new_page->uninit.aux = aux;
+	return new_page;
+}
 
-/* Copy supplemental page table from src to dst */
+static bool
+spt_copy_uninit (struct supplemental_page_table *dst, struct page *src_page) {
+	struct page *new_page;
+	if ((new_page = spt_copy_uninit_page(src_page))) {
+		if (spt_insert_page(dst, new_page)) {
+			return true;
+		}
+		free(new_page->uninit.aux);
+		free(new_page);
+	}
+	return false;
+}
+
+static bool
+spt_link_new_spt (struct supplemental_page_table *dst, struct page *new_page) {
+	if (spt_insert_page(dst, new_page)) {
+		if (pml4_set_page(thread_current()->pml4, new_page->va, new_page->frame->kva, new_page->is_writable)) {
+			return true;
+		}
+		palloc_free_page(new_page->frame->kva);
+		spt_remove_page(dst, new_page);
+	}
+	else {
+		palloc_free_page(new_page->frame->kva);
+		free(new_page->frame);
+		free(new_page);
+	}
+	return false;
+}
+
+static struct page *
+spt_copy_page_and_frame (struct page *src_page) {
+
+	struct page *new_page;
+	struct frame *new_frame;
+	if ((new_page = spt_copy_page(src_page)) == NULL) {
+		return NULL;
+	}
+	if ((new_frame = vm_get_frame())) {
+		new_frame->page = new_page;
+		new_page->frame = new_frame;
+		memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
+		return new_page;
+	}
+	free(new_page);
+	return NULL;
+}
+
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
-
 	struct hash_iterator i;
 	struct hash_elem *curr;
 
-	struct page *src_page = NULL;
+	struct page *src_page;
 	struct page *new_page;
-	struct frame *new_frame;
 
-	/*hash 순회*/
 	hash_first(&i, &src->hash);
-	while (curr = hash_next(&i)) {
-		/*page복사 처리*/
+	while ((curr = hash_next(&i))) {
 		src_page = hash_entry(curr, struct page, element);
-		if ((new_page = malloc(sizeof(struct page))) == NULL) {
-			return false;
-		}
-		memcpy(new_page, src_page, sizeof(struct page));
-
-		switch (src_page->operations->type) {
-			case VM_UNINIT : {
-				struct file_src *aux = malloc(sizeof(struct file_src));
-				if (!aux) {
-					return false;
-				}
-				memcpy(aux, src_page->uninit.aux, sizeof(struct file_src));
-				new_page->uninit.aux = aux;
-				spt_insert_page(dst, new_page);
-				continue; /*uninit은 어차피 frame 없으니까 이렇게 돌아가게 함*/
-				break;
-			}
-			case VM_ANON : {
-				/*TODO: eviction 구현*/
-			}
-			case VM_FILE : {
-				/*TODO: mmap 구현*/
-			}
-		}
-
-		/*frame 복사 처리*/
-		if (src_page->frame == NULL) {
-			/*TODO: eviction 구현*/
-			PANIC("todo");
-		} else {
-			if (new_frame = vm_get_frame()) {
-				new_frame->page = new_page;
-				new_page->frame = new_frame;
-				memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
-			} else {
+		if (src_page->frame != NULL) {
+			if (!(new_page = spt_copy_page_and_frame(src_page)) || !spt_link_new_spt(dst, new_page)) {
 				return false;
 			}
-		}
-
-		if (spt_insert_page(dst, new_page)) {
-			if (pml4_set_page(thread_current()->pml4, new_page->va, new_frame->kva, new_page->is_writable)) {
-				continue;
+		} else {
+			switch (src_page->operations->type) {
+				case VM_UNINIT : {
+					if (!spt_copy_uninit(dst, src_page)) {
+						return false;
+					}
+					break;
+				}
+				case VM_ANON : {
+				/*TODO: eviction 구현*/
+				}
+				case VM_FILE : {
+				/*TODO: mmap 구현*/
+				}
+				default : {
+					return false;
+				}
 			}
 		}
-
-		return false;
 	}
-
 	return true;
-
 }
 
 static void
