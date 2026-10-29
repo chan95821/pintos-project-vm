@@ -18,6 +18,7 @@
 #include "devices/input.h"
 #include "threads/palloc.h"
 #include "vm/vm.h"
+#include "vm/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -122,9 +123,17 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:
 			sys_close(f);
 			break;
+		case SYS_MMAP:
+			sys_mmap(f);
+			break;
+		case SYS_MUNMAP:
+			sys_munmap(f);
+			break;
 		case SYS_DUP2:
 			sys_dup2(f);
 			break;
+
+
 		default:
 			printf ("system call!\n");
 			thread_exit ();
@@ -450,6 +459,52 @@ sys_close (struct intr_frame *f) {
 		}
 	}
 }
+	// /*fd 찾기 -> stdin/stdout이나 열리지 않은 fd를 참조하면 실패*/
+	// if (seek_sys_mmap_fd()) { /**/
+	// 	f->R.rax = NULL;
+	// 	return;
+	// }
+	// /**TODO: 이외에도 validation 검사 필요
+	//  * ->유저주소인지, 페이지 단위로 되어있는지, size만큼 다 가상 주소가 사용가능한지 확인 필요*/
+	// // if (addr == NULL) {
+	// // 	f->R.rax = NULL;
+	// // 	return;
+	// // }
+	// if (vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux)) {
+	// 	f->R.rax = addr;
+	// } /* 이게 do mmap에 들어가야함 */
+	/*mmap 가 file_reopen해서 파일 포인터를 가지고 있게 처리 -> 구조체 사용?struct file_page
+	 * 근데 이걸 누가하게 할지
+	*/
+static void
+sys_mmap (struct intr_frame *f) {
+	void *addr = f->R.rdi;
+	size_t length = f->R.rsi;
+	int writable = f->R.rdx;
+	int fd = f->R.r10;
+	off_t offset = f->R.r8;
+
+	if (!is_sys_mmap_args_vaild()) { // fd 빼고 나머지 검사
+		f->R.rax = NULL;
+		return;
+	}
+
+	struct file *file = seek_sys_mmap_fd();
+	if(file == NULL) {
+		f->R.rax = NULL;
+		return;
+	}
+
+	/*while 돌려서 넣기 -> aux 처리 -> file도 같이 정보도 같이 넣어줘야함  */
+	f->R.rax = do_mmap (void *addr, size_t length, int writable,
+		struct file *file, off_t offset);
+	return
+}
+
+
+
+
+
 
 static void
 sys_dup2(struct intr_frame *f) {
@@ -556,3 +611,4 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 
 	return NULL;
 }
+

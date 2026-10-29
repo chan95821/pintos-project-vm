@@ -71,6 +71,9 @@ struct frame {
 struct file_src {
 	off_t offset;
 	uint32_t read_bytes;
+	struct *file file;
+	addr 
+	
 };
 
 /* The function table for page operations.
