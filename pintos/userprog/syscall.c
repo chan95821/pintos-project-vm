@@ -482,8 +482,7 @@ sys_mmap (struct intr_frame *f) {
 		return;
 	}
 
-	f->R.rax = do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset);
+	f->R.rax = do_mmap (addr, length, writable,file, offset);
 	return
 }
 
