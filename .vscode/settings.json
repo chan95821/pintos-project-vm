@@ -4,7 +4,8 @@
     "pintos.testShortcutEnabled": true,
     "C_Cpp.default.defines": [
         "USERPROG",
-        "FILESYS"
+        "FILESYS",
+        "VM"
     ],
     "C_Cpp.default.includePath": [
         "${workspaceFolder}/pintos/include"

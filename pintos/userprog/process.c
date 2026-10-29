@@ -478,7 +478,9 @@ process_exit (void) {
 	intr_set_level(old_level);
 
 	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
+	#ifdef VM
 	hash_destroy(&(curr->spt.hash), NULL);
+	#endif
 }
 
 /* Free the current process's resources. */

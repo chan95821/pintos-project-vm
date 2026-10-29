@@ -7,6 +7,7 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include <string.h>
 
 #define MAX_STACK_ADDR 0x47380000
 
@@ -286,10 +287,131 @@ supplemental_page_table_init (struct supplemental_page_table *spt ) {
 	}
 	return true;
 }
-/* Copy supplemental page table from src to dst */
+
+static void
+copy_error_free_memory (struct page *dst_page) {
+	if (dst_page->operations->type == VM_UNINIT && dst_page->uninit.aux != NULL) {
+		free(dst_page->uninit.aux);
+	}
+	if (dst_page->frame != NULL) {
+		palloc_free_page(dst_page->frame->kva);
+		free(dst_page->frame);
+	}
+	free(dst_page);
+}
+
+static bool
+page_copy_uninit(struct page *dst_page, struct page *src_page) {
+	memcpy(dst_page, src_page, sizeof(struct page));
+
+	if(src_page->uninit.aux == NULL) {
+		return true;
+	}
+
+	dst_page->uninit.aux = NULL;
+	struct file_src *aux = malloc(sizeof(struct file_src));
+	if (!aux) {
+		return false;
+	}
+	memcpy(aux, src_page->uninit.aux, sizeof(struct file_src));
+	dst_page->uninit.aux = aux;
+	return true;
+}
+
+static bool
+page_copy_anon(struct page *dst_page, struct page *src_page) {
+	memcpy(dst_page, src_page, sizeof(struct page));
+	dst_page->frame = NULL;
+
+	struct frame *new_frame;
+	if (!(new_frame = vm_get_frame())) {
+		return false;
+	}
+		
+	new_frame->page = dst_page;
+	dst_page->frame = new_frame;
+	memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
+	return true;
+}
+
+static bool
+page_copy_file_backed(struct page *dst_page, struct page *src_page) {
+	return false;
+}
+
+
+static struct page * 
+page_copy(struct page *src_page) {
+	struct page *dst_page;
+	if ((dst_page = malloc(sizeof(struct page))) == NULL) {
+		return NULL;
+	}
+	switch (src_page->operations->type) {
+		case VM_UNINIT: {
+			if (!page_copy_uninit(dst_page, src_page)) {
+				goto error;
+			}
+			break;
+		}
+		case VM_ANON: {
+			/*TODO: eviction 구현*/
+			if (!page_copy_anon(dst_page, src_page)) {
+				goto error;
+			}
+			break;
+		}
+		case VM_FILE: {
+			/*TODO: mmap 구현*/
+			if (!page_copy_file_backed(dst_page, src_page)) {
+				goto error;
+			}
+			break;
+		}
+		default: {
+			free(dst_page);
+			return NULL;
+		}
+	}
+
+	if (dst_page->frame != NULL) {
+		if (!pml4_set_page(thread_current()->pml4, dst_page->va, dst_page->frame->kva, dst_page->is_writable)) {
+			goto error;
+		}
+	}
+
+	return dst_page;
+
+error : 
+	copy_error_free_memory(dst_page);
+	return NULL;
+}
+
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+	struct hash_iterator i;
+	struct hash_elem *curr;
+	struct page *dst_page;
+
+	hash_first(&i, &src->hash);
+	while ((curr = hash_next(&i))){
+		if (!(dst_page = page_copy(hash_entry(curr, struct page, element)))){
+			return false;
+		}
+		if (!spt_insert_page(dst, dst_page)){
+			if (dst_page->operations->type == VM_UNINIT && dst_page->uninit.aux != NULL){
+				free(dst_page->uninit.aux);
+			}
+			if (dst_page->frame != NULL){
+				pml4_clear_page(thread_current()->pml4, dst_page->va);
+  				palloc_free_page(dst_page->frame->kva);
+				free(dst_page->frame);
+			}
+			free(dst_page);
+			return false;
+		}
+	}
+	return true;
 }
 
 static void
