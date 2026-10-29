@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include "kernel/hash.h"
+#include "filesys/file.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -71,9 +72,7 @@ struct frame {
 struct file_src {
 	off_t offset;
 	uint32_t read_bytes;
-	struct *file file;
-	addr 
-	
+	struct file *file;
 };
 
 /* The function table for page operations.
