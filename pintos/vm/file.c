@@ -50,6 +50,34 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
+	
+	struct file * new_file = file_reopen(file);
+	
+	if(!mmap_alloc_pages(/* TODO */)) {
+		// -> 내부 실패시 cleanup mmap 새로 만들기
+		file_close(new_file);
+		return NULL;
+	}
+
+	// while (addr + length 전까지) {
+	// 	PGSIZE만큼 잘라서 read /zero byte 계산하기
+
+	// 	struct file_src = 
+
+	// 	aux<file_src> 만들어주기 
+	// 	page 만들기
+
+	// 	-> 중간에서 실패하면? -> cleanup 로직 {
+	// 		cleanup
+	// 	}
+
+	// 	자른 만큼 advance하기
+	// }
+
+	// :
+
+	return addr;
+	// return mapped addr or NULL;
 }
 
 /* Do the munmap */
