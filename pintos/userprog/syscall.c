@@ -41,6 +41,7 @@ void syscall_handler (struct intr_frame *);
 static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
+static struct file * seek_sys_mmap_fd(int fd);
 static bool is_valid_buffer(char *buffer, int size, void* arg);
 
 static void sys_halt (struct intr_frame *f);
@@ -57,7 +58,10 @@ static void sys_write (struct intr_frame *f);
 static void sys_seek (struct intr_frame *f);
 static void sys_tell (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
-static void sys_dup2(struct intr_frame *f); 
+static void sys_mmap(struct intr_frame *f);
+static void sys_dup2(struct intr_frame *f);
+
+static bool is_sys_mmap_args_vaild(void *addr, uint64_t length);
 
 void
 syscall_init (void) {
@@ -127,7 +131,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			sys_mmap(f);
 			break;
 		case SYS_MUNMAP:
-			sys_munmap(f);
+			// sys_munmap(f);
 			break;
 		case SYS_DUP2:
 			sys_dup2(f);
@@ -459,23 +463,7 @@ sys_close (struct intr_frame *f) {
 		}
 	}
 }
-	// /*fd 찾기 -> stdin/stdout이나 열리지 않은 fd를 참조하면 실패*/
-	// if (seek_sys_mmap_fd()) { /**/
-	// 	f->R.rax = NULL;
-	// 	return;
-	// }
-	// /**TODO: 이외에도 validation 검사 필요
-	//  * ->유저주소인지, 페이지 단위로 되어있는지, size만큼 다 가상 주소가 사용가능한지 확인 필요*/
-	// // if (addr == NULL) {
-	// // 	f->R.rax = NULL;
-	// // 	return;
-	// // }
-	// if (vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux)) {
-	// 	f->R.rax = addr;
-	// } /* 이게 do mmap에 들어가야함 */
-	/*mmap 가 file_reopen해서 파일 포인터를 가지고 있게 처리 -> 구조체 사용?struct file_page
-	 * 근데 이걸 누가하게 할지
-	*/
+
 static void
 sys_mmap (struct intr_frame *f) {
 	void *addr = f->R.rdi;
@@ -484,27 +472,21 @@ sys_mmap (struct intr_frame *f) {
 	int fd = f->R.r10;
 	off_t offset = f->R.r8;
 
-	if (!is_sys_mmap_args_vaild()) { // fd 빼고 나머지 검사
+	if (!is_sys_mmap_args_vaild(addr, length)) {
 		f->R.rax = NULL;
 		return;
-	}
+	} // 
 
-	struct file *file = seek_sys_mmap_fd();
+	struct file *file = seek_sys_mmap_fd(fd);
 	if(file == NULL) {
 		f->R.rax = NULL;
 		return;
 	}
 
-	/*while 돌려서 넣기 -> aux 처리 -> file도 같이 정보도 같이 넣어줘야함  */
-	f->R.rax = do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset);
-	return
+	f->R.rax = do_mmap (addr, length, writable,
+		file, offset);
+	return;
 }
-
-
-
-
-
 
 static void
 sys_dup2(struct intr_frame *f) {
@@ -612,3 +594,45 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 	return NULL;
 }
 
+static bool 
+is_sys_mmap_args_vaild(void *addr, uint64_t length) {
+	
+	if(length == 0) {
+		return false;
+	}
+	if(pg_ofs(addr) != 0) {
+		return false;
+	}
+
+	if(addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length)) {
+		return false;
+	}
+
+	while(length > 0) {
+		if(spt_find_page(&thread_current() ->spt, addr)) {
+			return false;
+		}
+		length -= PGSIZE;
+		addr += PGSIZE;
+	}
+
+	return true;
+}
+
+struct file * 
+seek_sys_mmap_fd (int fd) {
+	struct fd_info *fd_info = seek_fd_info(thread_current (), fd);
+
+	if(fd_info == NULL) {
+		return NULL;
+	}
+	if(!isnt_stdin_or_stdout(fd_info)) {
+		return NULL;
+	}
+
+	if(file_length(fd_info->file_info->my_file) == 0) {
+		return NULL;
+	}
+
+	return fd_info->file_info->my_file;
+}
