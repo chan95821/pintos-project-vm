@@ -41,6 +41,8 @@ static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
 static bool is_valid_buffer(char *buffer, int size, void* arg);
+static bool is_sys_mmap_args_valid(void *, size_t);
+static struct file *seek_sys_mmap_fd(int);
 
 static void sys_halt (struct intr_frame *f);
 static void sys_exit (struct intr_frame *f);
@@ -56,6 +58,8 @@ static void sys_write (struct intr_frame *f);
 static void sys_seek (struct intr_frame *f);
 static void sys_tell (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
+static void sys_mmap (struct intr_frame *f);
+static void sys_munmap (struct intr_frame *f);
 static void sys_dup2(struct intr_frame *f); 
 
 void
@@ -104,11 +108,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_OPEN:
 			sys_open(f);
 			break;
-		case SYS_READ:
-			sys_read(f);
-			break;
 		case SYS_FILESIZE:
 			sys_filesize(f);
+			break;
+		case SYS_READ:
+			sys_read(f);
 			break;
 		case SYS_WRITE:
 			sys_write(f);
@@ -121,6 +125,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_CLOSE:
 			sys_close(f);
+			break;
+		case SYS_MMAP:
+			sys_mmap(f);
+			break;
+		case SYS_MUNMAP:
+			do_munmap(f->R.rdi);
 			break;
 		case SYS_DUP2:
 			sys_dup2(f);
@@ -452,6 +462,34 @@ sys_close (struct intr_frame *f) {
 }
 
 static void
+sys_mmap(struct intr_frame *f) {
+	void   *addr    = f->R.rdi;
+	size_t length   = f->R.rsi;
+	int    writable	= f->R.rdx;
+	int    fd       = f->R.r10;
+	off_t  offset   = f->R.r8;
+
+	if (!is_sys_mmap_args_valid(addr, length)) {
+		f->R.rax = NULL;
+		return; 
+	}
+
+	struct file *file = seek_sys_mmap_fd(fd);
+	if(file == NULL) {
+		f->R.rax = NULL;
+		return;
+	}
+
+	f->R.rax = do_mmap (addr, length, writable, file, offset);
+	return;
+}
+
+static void
+sys_munmap(struct intr_frame *f) {
+	do_munmap(f->R.rdi);
+}
+
+static void
 sys_dup2(struct intr_frame *f) {
 	int oldfd = f->R.rdi;
 	int newfd = f->R.rsi;
@@ -553,6 +591,33 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 			return list_entry(ptr, struct fd_info, elem);
 		}
 	}
-
 	return NULL;
+}
+
+static bool
+is_sys_mmap_args_valid(void *addr, size_t length){
+
+	if((uint64_t)addr%(PAGE_SIZE) 
+		|| length == 0
+		|| !is_valid_buffer(addr, length, NULL)){
+		return false;
+	}
+
+	for(uint64_t offset = 0; offset<length; offset += PAGE_SIZE){
+		if(spt_find_page(&thread_current()->spt, addr+offset)){
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static struct file *seek_sys_mmap_fd(int fd){
+	struct fd_info *ptr = seek_fd_info(thread_current(), fd);
+	if(ptr 
+		&& isnt_stdin_or_stdout(ptr) 
+		&& file_length(ptr->file_info->my_file)){
+		return ptr->file_info->my_file;
+	}
+	else return NULL;
 }

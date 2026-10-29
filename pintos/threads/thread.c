@@ -692,6 +692,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 		intr_set_level(old_level);
 	}
 
+	list_init(&t->file_src_list);
+
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

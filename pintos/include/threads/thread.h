@@ -123,6 +123,7 @@ typedef int tid_t;
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	struct list file_src_list;
 #endif
 
 	/* Owned by thread.c. */

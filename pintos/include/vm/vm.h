@@ -69,6 +69,9 @@ struct frame {
 };
 
 struct file_src {
+	struct file *file;
+	struct list_elem element;
+	void *addr;
 	off_t offset;
 	uint32_t read_bytes;
 };
