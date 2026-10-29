@@ -626,7 +626,7 @@ seek_sys_mmap_fd (int fd) {
 	if(fd_info == NULL) {
 		return NULL;
 	}
-	if(isnt_stdin_or_stdout(fd_info)) {
+	if(!isnt_stdin_or_stdout(fd_info)) {
 		return NULL;
 	}
 
