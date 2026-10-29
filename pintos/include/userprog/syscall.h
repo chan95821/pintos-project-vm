@@ -5,8 +5,8 @@
 
 void syscall_init (void);
 
-#define STDIN_FILE ((struct file *) 0)
-#define STDOUT_FILE ((struct file *) 1)
+#define STDIN_FILE ((struct file *) 1)
+#define STDOUT_FILE ((struct file *) 2)
 
 struct fd_info{
 	struct file_info *file_info;
