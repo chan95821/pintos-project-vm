@@ -7,8 +7,7 @@ struct page;
 enum vm_type;
 
 struct file_page {
-	TODO: aux가 준 정보 모두 가지고 있어야
-	
+	struct file_src * file_src;
 };
 
 void vm_file_init (void);
