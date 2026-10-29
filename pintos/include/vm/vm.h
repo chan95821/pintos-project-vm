@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include "kernel/hash.h"
+#include "filesys/file.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -74,6 +75,7 @@ struct file_src {
 	void *addr;
 	off_t offset;
 	uint32_t read_bytes;
+	struct file *file;
 };
 
 /* The function table for page operations.

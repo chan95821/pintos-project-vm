@@ -18,6 +18,7 @@
 #include "devices/input.h"
 #include "threads/palloc.h"
 #include "vm/vm.h"
+#include "vm/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -40,6 +41,7 @@ void syscall_handler (struct intr_frame *);
 static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
+static struct file * seek_sys_mmap_fd(int fd);
 static bool is_valid_buffer(char *buffer, int size, void* arg);
 static bool is_sys_mmap_args_valid(void *, size_t);
 static struct file *seek_sys_mmap_fd(int);
@@ -130,11 +132,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			sys_mmap(f);
 			break;
 		case SYS_MUNMAP:
-			do_munmap(f->R.rdi);
+			// sys_munmap(f);
 			break;
 		case SYS_DUP2:
 			sys_dup2(f);
 			break;
+
+
 		default:
 			printf ("system call!\n");
 			thread_exit ();
@@ -462,17 +466,17 @@ sys_close (struct intr_frame *f) {
 }
 
 static void
-sys_mmap(struct intr_frame *f) {
-	void   *addr    = f->R.rdi;
-	size_t length   = f->R.rsi;
-	int    writable	= f->R.rdx;
-	int    fd       = f->R.r10;
-	off_t  offset   = f->R.r8;
+sys_mmap (struct intr_frame *f) {
+	void *addr = f->R.rdi;
+	size_t length = f->R.rsi;
+	int writable = f->R.rdx;
+	int fd = f->R.r10;
+	off_t offset = f->R.r8;
 
-	if (!is_sys_mmap_args_valid(addr, length)) {
+	if (!is_sys_mmap_args_vaild(addr, length)) {
 		f->R.rax = NULL;
-		return; 
-	}
+		return;
+	} // 
 
 	struct file *file = seek_sys_mmap_fd(fd);
 	if(file == NULL) {
@@ -480,13 +484,9 @@ sys_mmap(struct intr_frame *f) {
 		return;
 	}
 
-	f->R.rax = do_mmap (addr, length, writable, file, offset);
+	f->R.rax = do_mmap (addr, length, writable,
+		file, offset);
 	return;
-}
-
-static void
-sys_munmap(struct intr_frame *f) {
-	do_munmap(f->R.rdi);
 }
 
 static void
@@ -597,9 +597,9 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 static bool
 is_sys_mmap_args_valid(void *addr, size_t length){
 
-	if((uint64_t)addr%(PAGE_SIZE) 
+	if(pg_ofs(addr) != 0
 		|| length == 0
-		|| !is_valid_buffer(addr, length, NULL)){
+		|| addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length)) { 
 		return false;
 	}
 

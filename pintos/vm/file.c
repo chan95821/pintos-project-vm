@@ -1,6 +1,8 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
+#include "threads/vaddr.h"
+#include "lib/string.h"
 #include "threads/mmu.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
@@ -26,6 +28,11 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
 	struct file_page *file_page = &page->file;
+
+	*file_page = (struct file_page) {
+		.src = NULL
+	};
+
 	return true;
 }
 
@@ -39,20 +46,95 @@ file_backed_swap_in (struct page *page, void *kva) {
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+
+
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+
+	if(page->frame == NULL) {
+		// nothing to do.
+	} else {
+		free(page->frame);
+	}
+	
+	free(file_page->src);
 }
 
-/* Do the mmap */
-static bool lazy_load_file(struct page *page, void *aux){
-	struct file_src *src = (struct file_src *)aux;
-	off_t read = file_read_at(src->file, page->frame->kva, src->read_bytes, src->offset);
-	memset(page->frame->kva + read, 0, PGSIZE - read);
+
+static bool
+mmap_lazy_load_segment (struct page *page, void *aux) {
+	
+	struct file_src *src = aux;
+	struct file_page *file_page = &page->file;
+
+	file_page->src = src;
+
+	if(file_read_at(src->file, page->frame->kva, src->read_bytes, src->offset) != src->read_bytes) {
+		free(aux);
+		file_page->src = NULL;
+		return false;
+	}
+
+	memset((char *)(page->frame->kva) + src->read_bytes, 0, PGSIZE - src->read_bytes);
 	return true;
+}
+
+static struct file_src *
+mmap_prepare_aux(struct file *file, off_t offset, off_t read_bytes) {
+	struct file_src *aux = malloc(sizeof(*aux));
+	if(aux == NULL) {
+		return NULL;
+	}
+
+	aux->file = file;
+	aux->offset = offset;
+	aux->read_bytes = read_bytes;
+
+	return aux;
+}
+
+static bool
+mmap_alloc_pages(void *addr, size_t length, int writable,
+struct file *file, off_t offset) {
+	
+	off_t read_bytes = file_length(file) - offset > length ? length : file_length(file) - offset;
+	off_t zero_bytes = pg_round_up(length) - read_bytes;
+
+	uint64_t cur_addr = addr;
+	uint64_t idx = 0;	
+
+	while(read_bytes > 0 || zero_bytes > 0) {
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+		size_t page_zero_bytes = PGSIZE - zero_bytes;
+
+		struct file_src *aux = mmap_prepare_aux(file, offset, page_read_bytes);
+		if(aux == NULL) {
+			goto err;
+		}
+		if(!vm_alloc_page_with_initializer
+			(VM_FILE, cur_addr, writable, mmap_lazy_load_segment, aux)) {
+				free(aux);
+				goto err;
+			}
+		
+		read_bytes -= page_read_bytes;
+		zero_bytes -= page_zero_bytes;
+		offset += page_read_bytes;
+		idx++;
+		cur_addr = addr + idx * PGSIZE;
+	}
+
+	return true;
+err:
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+	for(int i = 0; i < idx; i++) {
+		spt_remove_page(spt, spt_find_page(spt, addr + i * PGSIZE));
+	}
+	return false;
 }
 
 void *
@@ -60,53 +142,17 @@ do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
 	
 	struct file * new_file = file_reopen(file);
-	struct file_src *file_src_thread = malloc(sizeof(struct file_src));
-	// 실패 대응
-
-	for(int read = 0; length > read; read += PGSIZE){
-		struct file_src *src = malloc(sizeof(struct file_src));
-		if(!src){
-			//reopen된 경우는 file 닫기, 
-			//그동안 for를 거치면서 만들어진 
-			// 1. src free 하기
-		}
-		src->file = new_file;
-		src->offset = offset + read;
-		src->read_bytes = length-read>PGSIZE?PGSIZE:length-read;
-		src->addr = addr;
-		vm_alloc_page_with_initializer(VM_FILE, addr + read, writable, lazy_load_file, src);
+	
+	if(!mmap_alloc_pages(addr, length, writable, new_file, offset)) {
+		file_close(new_file);
+		return NULL;
 	}
-	file_src_thread->file = new_file;
-	file_src_thread->offset = offset;
-	file_src_thread->read_bytes = length;
-	file_src_thread->addr = addr;
-	list_push_back(&thread_current()->file_src_list, &file_src_thread->element);
+
 	return addr;
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	struct file_src *src = NULL;
-	for(struct list_elem *element = list_begin(&thread_current()->file_src_list);
-		element != list_tail(&thread_current()->file_src_list);
-		element = list_next(element)){
-		if(list_entry(element,struct file_src, element)->addr == addr){
-			src = list_entry(element,struct file_src, element);
-			break;
-		}
-	}
-	ASSERT(src);
-	for(int read = 0; src->read_bytes > read; read += PGSIZE){
-		struct page *page = spt_find_page(&thread_current()->spt, addr+read);
-		if(!page){
-			break;
-		}
-		if(page->frame){
-			palloc_free_page(page->frame->kva);
-			free(page->frame);
-			page->frame = NULL;
-		}
-		spt_remove_page(&thread_current()->spt, page);
-	}
+	
 }
