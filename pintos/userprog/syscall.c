@@ -132,7 +132,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			sys_mmap(f);
 			break;
 		case SYS_MUNMAP:
-			// sys_munmap(f);
+			sys_munmap(f);
 			break;
 		case SYS_DUP2:
 			sys_dup2(f);
@@ -488,6 +488,17 @@ sys_mmap (struct intr_frame *f) {
 	f->R.rax = do_mmap (addr, length, writable,
 		file, offset);
 	return;
+}
+
+static void 
+sys_munmap (struct intr_frame *f) {
+	void *addr = f->R.rdi;
+
+	// bool is_valid_addr()
+
+	// do_munmap(void *addr);
+
+
 }
 
 static void
