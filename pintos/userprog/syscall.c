@@ -60,6 +60,8 @@ static void sys_write (struct intr_frame *f);
 static void sys_seek (struct intr_frame *f);
 static void sys_tell (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
+static void sys_mmap (struct intr_frame *f);
+static void sys_munmap (struct intr_frame *f);
 static void sys_dup2(struct intr_frame *f); 
 
 void
@@ -108,11 +110,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_OPEN:
 			sys_open(f);
 			break;
-		case SYS_READ:
-			sys_read(f);
-			break;
 		case SYS_FILESIZE:
 			sys_filesize(f);
+			break;
+		case SYS_READ:
+			sys_read(f);
 			break;
 		case SYS_WRITE:
 			sys_write(f);
@@ -130,7 +132,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			sys_mmap(f);
 			break;
 		case SYS_MUNMAP:
-			sys_munmap(f);
+			// sys_munmap(f);
 			break;
 		case SYS_DUP2:
 			sys_dup2(f);
@@ -463,6 +465,7 @@ sys_close (struct intr_frame *f) {
 	}
 }
 
+
 static void
 sys_mmap (struct intr_frame *f) {
 	void *addr = f->R.rdi;
@@ -474,7 +477,7 @@ sys_mmap (struct intr_frame *f) {
 	if (!is_sys_mmap_args_vaild(addr, length)) { // fd 빼고 나머지 검사
 		f->R.rax = NULL;
 		return;
-	}
+	} // 
 
 	struct file *file = seek_sys_mmap_fd(fd);
 	if(file == NULL) {
@@ -482,8 +485,9 @@ sys_mmap (struct intr_frame *f) {
 		return;
 	}
 
-	f->R.rax = do_mmap (addr, length, writable,file, offset);
-	return
+	f->R.rax = do_mmap (addr, length, writable,
+		file, offset);
+	return;
 }
 
 static void
@@ -588,13 +592,14 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 			return list_entry(ptr, struct fd_info, elem);
 		}
 	}
-
 	return NULL;
 }
 
 static bool
 is_sys_mmap_args_vaild(void *addr, size_t length) {
-	if (addr_isnt_user_vaild(addr) || pg_ofs(addr) != 0|| !is_va_vaild(addr, length)) {
+	if(pg_ofs(addr) != 0
+		|| length == 0
+		|| addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length) || !is_va_vaild(addr, length)) { 
 		return false;
 	}
 	return true;
@@ -611,11 +616,12 @@ is_va_vaild(void *addr, size_t length) {
 	return true;
 }
 
-static struct file *
-seek_sys_mmap_fd (int fd) {
-	struct fd_info *fd_info = seek_fd_info(thread_current(), fd);
-	if (fd_info || isnt_stdin_or_stdout(fd_info)) {
-		return NULL;
+static struct file *seek_sys_mmap_fd(int fd){
+	struct fd_info *ptr = seek_fd_info(thread_current(), fd);
+	if(ptr 
+		&& isnt_stdin_or_stdout(ptr) 
+		&& file_length(ptr->file_info->my_file)){
+		return ptr->file_info->my_file;
 	}
-	return fd_info->file_info->my_file;
+	else return NULL;
 }

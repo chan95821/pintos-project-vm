@@ -1,6 +1,10 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
+#include "threads/vaddr.h"
+#include "lib/string.h"
+#include "threads/mmu.h"
+#include "filesys/filesys.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -26,8 +30,13 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
+	struct file_page *file_page = &page->file;
 
-	struct file_page *file_page = &page->file; 
+	*file_page = (struct file_page) {
+		.file_src = NULL
+	};
+
+	return true;
 }
 
 /* Swap in the page by read contents from the file. */
@@ -40,14 +49,23 @@ file_backed_swap_in (struct page *page, void *kva) {
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+
+
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
-}
+	struct file_page *file_page = &page->file;
 
+	if(page->frame == NULL) {
+		// nothing to do.
+	} else {
+		free(page->frame);
+	}
+	
+	free(file_page->file_src);
+}
 static bool
 lazy_load_mmap (struct page *page, void *aux) {
 	ASSERT(page->frame != NULL);
@@ -63,7 +81,7 @@ lazy_load_mmap (struct page *page, void *aux) {
 	}
 
 	lock_acquire(&file_lock);
-	if(file_read_at(page->file, kva, read_bytes, file_meta->offset) != read_bytes) {
+	if(file_read_at(file_meta->file, kva, read_bytes, file_meta->offset) != read_bytes) {
 		return false;
 	}
 	lock_release(&file_lock);
@@ -74,21 +92,25 @@ lazy_load_mmap (struct page *page, void *aux) {
 
 	memset(kva + read_bytes, 0, zero_bytes); 
 
-	page->file_page->file_src = file_meta;
+	page->file.file_src = file_meta;
 
 	return true;
 }
 
 static void 
-mmap_clean_up_for_error (void){
-	return;
+mmap_clean_up_for_error (int idx, void *addr){
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+	for(int i = 0; i < idx; i++) {
+		spt_remove_page(spt, spt_find_page(spt, addr + i * PGSIZE));
+	}
 }
 
 static void *
 mmap_alloc_pages (void *addr, size_t length, int writable,
 	struct file *file, off_t offset) {
-
-	for (size_t step = 0; step < length; step += PGSIZE) {
+	
+	uint64_t idx = 0;	
+	for (size_t step = 0; step < length; step += PGSIZE, idx++) {
 		struct file_src *aux = malloc(sizeof(struct file_src));
 		if (!aux) {
 			return NULL;
@@ -99,7 +121,7 @@ mmap_alloc_pages (void *addr, size_t length, int writable,
 
 		if (!vm_alloc_page_with_initializer(VM_FILE, (addr + step), writable, lazy_load_mmap, aux)) {
 			free(aux);
-			mmap_clean_up_for_error();
+			mmap_clean_up_for_error(idx, addr);
 			return NULL;
 		}
 	}
@@ -114,7 +136,6 @@ do_mmap (void *addr, size_t length, int writable,
 	struct file * new_file = file_reopen(file);
 	
 	if(!mmap_alloc_pages(addr, length, writable, file, offset)) {
-		// -> 내부 실패시 cleanup mmap 새로 만들기
 		file_close(new_file);
 		return NULL;
 	}
@@ -125,4 +146,5 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	
 }
