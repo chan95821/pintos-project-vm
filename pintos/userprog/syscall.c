@@ -43,6 +43,7 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
 static bool is_valid_buffer(char *buffer, int size, void* arg);
 static bool is_sys_mmap_args_vaild(void *addr, size_t length);
+static bool is_sys_munmap_args_vaild(void *addr);
 static bool is_va_vaild(void *addr, size_t length);
 static struct file *seek_sys_mmap_fd (int fd);
 
@@ -491,14 +492,12 @@ sys_mmap (struct intr_frame *f) {
 }
 
 static void 
-sys_munmap (struct intr_frame *f) {
+sys_munmap (struct intr_frame *f){
 	void *addr = f->R.rdi;
-
-	// bool is_valid_addr()
-
-	// do_munmap(void *addr);
-
-
+	if(!is_sys_munmap_args_vaild(addr)){
+		return;
+	}
+	do_munmap(addr);
 }
 
 static void
@@ -615,6 +614,18 @@ is_sys_mmap_args_vaild(void *addr, size_t length) {
 	}
 	return true;
 }
+
+static bool
+is_sys_munmap_args_vaild(void *addr) {
+	if(pg_ofs(addr) != 0
+		|| addr_isnt_user_vaild(addr)
+		// || !find_mmap_info(thread_current(), addr)
+	) { 
+		return false;
+	}
+	return true;
+}
+
 
 static bool
 is_va_vaild(void *addr, size_t length) {

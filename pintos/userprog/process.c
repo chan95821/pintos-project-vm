@@ -36,6 +36,9 @@ static void __do_fork (void *);
 static bool duplicate_fd_list(struct list *p_file_list, struct list *c_file_list);
 static struct file_info *find_shared_file_info(struct list *p_file_list, struct list_elem *p_curr_elem, struct list *c_file_list);
 static struct file_info *duplicate_file_info(struct fd_info *parent_fd_info);
+static void child_list_cleanup(struct list *child_list);
+static void wait_info_release(struct wait_info *wait_info);
+static void process_notify_exit(struct thread *curr);
 
 struct fork_args {
 	struct thread *curr;
@@ -424,7 +427,6 @@ process_exit (void) {
 		lock_release(&file_lock);
 	}
 
-	struct list *child_list = &(curr->child_list);
 	struct list_elem *ptr;
 
 	/*file list 정리 -> 인터럽트 밖에서 처리 */
@@ -448,10 +450,17 @@ process_exit (void) {
 		free(fd_info);
 	}
 
+	child_list_cleanup(&(curr->child_list));
+	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
+	#ifdef VM
+	hash_destroy(&(curr->spt.hash), NULL);
+	#endif
+	process_notify_exit(curr);
+}
 
+static void child_list_cleanup(struct list *child_list){
+	struct list_elem *ptr;
 	enum intr_level old_level = intr_disable();
-
-	/*child list 정리*/
 	for(ptr = list_begin(child_list); ptr != list_end(child_list);){
 		struct wait_info *child = list_entry(ptr, struct wait_info, child_elem);
 		child->reference--;
@@ -464,23 +473,25 @@ process_exit (void) {
 			ptr = list_next(ptr);
 		}
 	}
-
-	if(curr->my_info != NULL){
-		curr->my_info->return_status = curr->exit_status;
-		intr_set_level(old_level);
-		sema_up(&(curr->my_info->wait));
-		old_level = intr_disable();
-		curr->my_info->reference--;
-		if(curr->my_info->reference == 0){
-			free(curr->my_info);
-		}
-	}
 	intr_set_level(old_level);
+}
 
-	process_cleanup (); // cleanup 안에서 pml4를 확인하고 잇음 
-	#ifdef VM
-	hash_destroy(&(curr->spt.hash), NULL);
-	#endif
+static void wait_info_release(struct wait_info *wait_info){
+	wait_info->reference --;
+	if(wait_info->reference == 0){
+		free(wait_info);
+	}
+}
+
+static void process_notify_exit(struct thread *curr){
+	if(curr->my_info != NULL){
+		enum intr_level old_level = intr_disable();
+		curr->my_info->return_status = curr->exit_status;
+		sema_up(&(curr->my_info->wait));
+		wait_info_release(curr->my_info);
+		curr->my_info = NULL;
+		intr_set_level(old_level);
+	}
 }
 
 /* Free the current process's resources. */
