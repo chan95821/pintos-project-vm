@@ -9,6 +9,7 @@
 #include "filesys/file.h"
 #ifdef VM
 #include "vm/vm.h"
+#include "vm/file.h"
 #endif
 
 struct lock;
@@ -123,6 +124,7 @@ typedef int tid_t;
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	struct mmap_info_container mmap_info_container;
 #endif
 
 	/* Owned by thread.c. */
