@@ -3,9 +3,14 @@
 #include "vm/vm.h"
 #include "threads/vaddr.h"
 #include "lib/string.h"
+#include "threads/mmu.h"
+#include "filesys/filesys.h"
+
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
+
+#define PGSIZE 4096
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -25,11 +30,10 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
-
 	struct file_page *file_page = &page->file;
 
 	*file_page = (struct file_page) {
-		.src = NULL
+		.file_src = NULL
 	};
 
 	return true;
@@ -60,80 +64,68 @@ file_backed_destroy (struct page *page) {
 		free(page->frame);
 	}
 	
-	free(file_page->src);
+	free(file_page->file_src);
 }
-
-
 static bool
-mmap_lazy_load_segment (struct page *page, void *aux) {
-	
-	struct file_src *src = aux;
-	struct file_page *file_page = &page->file;
+lazy_load_mmap (struct page *page, void *aux) {
+	ASSERT(page->frame != NULL);
 
-	file_page->src = src;
+	struct file_src *file_meta = aux;
+	uint8_t *kva = page->frame->kva;
+	uint32_t read_bytes = file_meta->read_bytes;
+	uint32_t zero_bytes = PGSIZE - read_bytes;
 
-	if(file_read_at(src->file, page->frame->kva, src->read_bytes, src->offset) != src->read_bytes) {
-		free(aux);
-		file_page->src = NULL;
+	bool lock_prev_status = false;
+	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
+		lock_release(&file_lock);
+	}
+
+	lock_acquire(&file_lock);
+	if(file_read_at(file_meta->file, kva, read_bytes, file_meta->offset) != read_bytes) {
 		return false;
 	}
+	lock_release(&file_lock);
 
-	memset((char *)(page->frame->kva) + src->read_bytes, 0, PGSIZE - src->read_bytes);
+	if(lock_prev_status) {
+		lock_acquire(&file_lock);
+	}
+
+	memset(kva + read_bytes, 0, zero_bytes); 
+
+	page->file.file_src = file_meta;
+
 	return true;
 }
 
-static struct file_src *
-mmap_prepare_aux(struct file *file, off_t offset, off_t read_bytes) {
-	struct file_src *aux = malloc(sizeof(*aux));
-	if(aux == NULL) {
-		return NULL;
-	}
-
-	aux->file = file;
-	aux->offset = offset;
-	aux->read_bytes = read_bytes;
-
-	return aux;
-}
-
-static bool
-mmap_alloc_pages(void *addr, size_t length, int writable,
-struct file *file, off_t offset) {
-	
-	off_t read_bytes = file_length(file) - offset > length ? length : file_length(file) - offset;
-	off_t zero_bytes = pg_round_up(length) - read_bytes;
-
-	uint64_t cur_addr = addr;
-	uint64_t idx = 0;	
-
-	while(read_bytes > 0 || zero_bytes > 0) {
-		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-		size_t page_zero_bytes = PGSIZE - zero_bytes;
-
-		struct file_src *aux = mmap_prepare_aux(file, offset, page_read_bytes);
-		if(aux == NULL) {
-			goto err;
-		}
-		if(!vm_alloc_page_with_initializer
-			(VM_FILE, cur_addr, writable, mmap_lazy_load_segment, aux)) {
-				free(aux);
-				goto err;
-			}
-		
-		read_bytes -= page_read_bytes;
-		zero_bytes -= page_zero_bytes;
-		offset += page_read_bytes;
-		idx++;
-		cur_addr = addr + idx * PGSIZE;
-	}
-
-	return true;
-err:
+static void 
+mmap_clean_up_for_error (int idx, void *addr){
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	for(int i = 0; i < idx; i++) {
 		spt_remove_page(spt, spt_find_page(spt, addr + i * PGSIZE));
 	}
-	return false;
+}
+
+static void *
+mmap_alloc_pages (void *addr, size_t length, int writable,
+	struct file *file, off_t offset) {
+	
+	uint64_t idx = 0;	
+	for (size_t step = 0; step < length; step += PGSIZE, idx++) {
+		struct file_src *aux = malloc(sizeof(struct file_src));
+		if (!aux) {
+			return NULL;
+		}
+		aux->offset = (offset + step);
+		aux->read_bytes = (length - step) < PGSIZE ? (length - step) : PGSIZE;
+		aux->file = file;
+
+		if (!vm_alloc_page_with_initializer(VM_FILE, (addr + step), writable, lazy_load_mmap, aux)) {
+			free(aux);
+			mmap_clean_up_for_error(idx, addr);
+			return NULL;
+		}
+	}
+	return addr;
 }
 
 /* Do the mmap */
@@ -143,7 +135,7 @@ do_mmap (void *addr, size_t length, int writable,
 	
 	struct file * new_file = file_reopen(file);
 	
-	if(!mmap_alloc_pages(addr, length, writable, new_file, offset)) {
+	if(!mmap_alloc_pages(addr, length, writable, file, offset)) {
 		file_close(new_file);
 		return NULL;
 	}
@@ -154,4 +146,5 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	
 }

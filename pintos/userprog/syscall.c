@@ -41,8 +41,10 @@ void syscall_handler (struct intr_frame *);
 static bool is_invaild_filename(char * filename);
 static struct fd_info * seek_fd_info (struct thread *curr, int fd);
 static struct fd_info * dup_fd_info(struct fd_info *oldfd_info, int newfd);
-static struct file * seek_sys_mmap_fd(int fd);
 static bool is_valid_buffer(char *buffer, int size, void* arg);
+static bool is_sys_mmap_args_vaild(void *addr, size_t length);
+static bool is_va_vaild(void *addr, size_t length);
+static struct file *seek_sys_mmap_fd (int fd);
 
 static void sys_halt (struct intr_frame *f);
 static void sys_exit (struct intr_frame *f);
@@ -58,10 +60,9 @@ static void sys_write (struct intr_frame *f);
 static void sys_seek (struct intr_frame *f);
 static void sys_tell (struct intr_frame *f);
 static void sys_close (struct intr_frame *f);
-static void sys_mmap(struct intr_frame *f);
-static void sys_dup2(struct intr_frame *f);
-
-static bool is_sys_mmap_args_vaild(void *addr, uint64_t length);
+static void sys_mmap (struct intr_frame *f);
+static void sys_munmap (struct intr_frame *f);
+static void sys_dup2(struct intr_frame *f); 
 
 void
 syscall_init (void) {
@@ -109,11 +110,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_OPEN:
 			sys_open(f);
 			break;
-		case SYS_READ:
-			sys_read(f);
-			break;
 		case SYS_FILESIZE:
 			sys_filesize(f);
+			break;
+		case SYS_READ:
+			sys_read(f);
 			break;
 		case SYS_WRITE:
 			sys_write(f);
@@ -464,6 +465,7 @@ sys_close (struct intr_frame *f) {
 	}
 }
 
+
 static void
 sys_mmap (struct intr_frame *f) {
 	void *addr = f->R.rdi;
@@ -472,7 +474,7 @@ sys_mmap (struct intr_frame *f) {
 	int fd = f->R.r10;
 	off_t offset = f->R.r8;
 
-	if (!is_sys_mmap_args_vaild(addr, length)) {
+	if (!is_sys_mmap_args_vaild(addr, length)) { // fd 빼고 나머지 검사
 		f->R.rax = NULL;
 		return;
 	} // 
@@ -590,49 +592,36 @@ static struct fd_info * seek_fd_info (struct thread *curr, int fd) {
 			return list_entry(ptr, struct fd_info, elem);
 		}
 	}
-
 	return NULL;
 }
 
-static bool 
-is_sys_mmap_args_vaild(void *addr, uint64_t length) {
-	
-	if(length == 0) {
+static bool
+is_sys_mmap_args_vaild(void *addr, size_t length) {
+	if(pg_ofs(addr) != 0
+		|| length == 0
+		|| addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length) || !is_va_vaild(addr, length)) { 
 		return false;
 	}
-	if(pg_ofs(addr) != 0) {
-		return false;
-	}
-
-	if(addr_isnt_user_vaild(addr) || addr_isnt_user_vaild(((char *)addr) + length)) {
-		return false;
-	}
-
-	while(length > 0) {
-		if(spt_find_page(&thread_current() ->spt, addr)) {
-			return false;
-		}
-		length -= PGSIZE;
-		addr += PGSIZE;
-	}
-
 	return true;
 }
 
-struct file * 
-seek_sys_mmap_fd (int fd) {
-	struct fd_info *fd_info = seek_fd_info(thread_current (), fd);
-
-	if(fd_info == NULL) {
-		return NULL;
+static bool
+is_va_vaild(void *addr, size_t length) {
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	for (size_t step = 0; step < length; step += PGSIZE) {
+		if (spt_find_page(spt, (addr+step))) {
+			return false;
+		}
 	}
-	if(!isnt_stdin_or_stdout(fd_info)) {
-		return NULL;
-	}
+	return true;
+}
 
-	if(file_length(fd_info->file_info->my_file) == 0) {
-		return NULL;
+static struct file *seek_sys_mmap_fd(int fd){
+	struct fd_info *ptr = seek_fd_info(thread_current(), fd);
+	if(ptr 
+		&& isnt_stdin_or_stdout(ptr) 
+		&& file_length(ptr->file_info->my_file)){
+		return ptr->file_info->my_file;
 	}
-
-	return fd_info->file_info->my_file;
+	else return NULL;
 }

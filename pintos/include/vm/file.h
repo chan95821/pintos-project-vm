@@ -7,7 +7,7 @@ struct page;
 enum vm_type;
 
 struct file_page {
-	struct file_src *src;
+	struct file_src * file_src;
 };
 
 void vm_file_init (void);
