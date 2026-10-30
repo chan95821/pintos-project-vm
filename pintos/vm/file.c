@@ -139,11 +139,27 @@ do_mmap (void *addr, size_t length, int writable,
 		return NULL;
 	}
 
+	// set_mmap_info(struct thread *, struct file *, void *addr, size_t length);
 	return addr;
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	
+	// struct mmap_info * find_mmap_info(thread, addr);
+
+	// destroy_mmap(struct mmap_info *);
+}
+
+
+destroy_mmap (mmap_info)  {
+	// mmap_info가 뭘 알려주나 - file 구조체 ref., mmap 등록한 addr, length
+
+	    // mmap_info가 가리키는 모든 페이지 => 
+        // {
+        //     spt_remove_page()
+        // 해당 페이지 cleanup
+        //     페이지 지우기 : pml4 매핑 없애고, frame도 palloc free, 구조체 자체 - frame, page … etc
+        //         => destroy(page) 재활용 할 수 있을듯 
+        // }
 }
