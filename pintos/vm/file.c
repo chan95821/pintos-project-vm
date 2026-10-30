@@ -10,8 +10,6 @@ static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
 
-#define PGSIZE 4096
-
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
 	.swap_in = file_backed_swap_in,
@@ -68,12 +66,11 @@ file_backed_destroy (struct page *page) {
 }
 static bool
 lazy_load_mmap (struct page *page, void *aux) {
-	ASSERT(page->frame != NULL);
 
 	struct file_src *file_meta = aux;
 	uint8_t *kva = page->frame->kva;
 	uint32_t read_bytes = file_meta->read_bytes;
-	uint32_t zero_bytes = PGSIZE - read_bytes;
+	off_t read;
 
 	bool lock_prev_status = false;
 	if(lock_prev_status = lock_held_by_current_thread(&file_lock)) {
@@ -81,16 +78,14 @@ lazy_load_mmap (struct page *page, void *aux) {
 	}
 
 	lock_acquire(&file_lock);
-	if(file_read_at(file_meta->file, kva, read_bytes, file_meta->offset) != read_bytes) {
-		return false;
-	}
+	read = file_read_at(file_meta->file, kva, read_bytes, file_meta->offset);
 	lock_release(&file_lock);
 
 	if(lock_prev_status) {
 		lock_acquire(&file_lock);
 	}
 
-	memset(kva + read_bytes, 0, zero_bytes); 
+	memset(kva + read, 0, PGSIZE - read); 
 
 	page->file.file_src = file_meta;
 
@@ -113,6 +108,7 @@ mmap_alloc_pages (void *addr, size_t length, int writable,
 	for (size_t step = 0; step < length; step += PGSIZE, idx++) {
 		struct file_src *aux = malloc(sizeof(struct file_src));
 		if (!aux) {
+			mmap_clean_up_for_error(idx, addr);
 			return NULL;
 		}
 		aux->offset = (offset + step);
@@ -134,8 +130,11 @@ do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
 	
 	struct file * new_file = file_reopen(file);
+	if(new_file == NULL) {
+		return NULL;
+	}
 	
-	if(!mmap_alloc_pages(addr, length, writable, file, offset)) {
+	if(!mmap_alloc_pages(addr, length, writable, new_file, offset)) {
 		file_close(new_file);
 		return NULL;
 	}
