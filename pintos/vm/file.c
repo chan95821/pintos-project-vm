@@ -1,5 +1,6 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
+#include "vm/file.h"
 #include "vm/vm.h"
 #include "threads/vaddr.h"
 #include "lib/string.h"
@@ -152,14 +153,123 @@ do_munmap (void *addr) {
 }
 
 
-destroy_mmap (mmap_info)  {
-	// mmap_info가 뭘 알려주나 - file 구조체 ref., mmap 등록한 addr, length
 
-	    // mmap_info가 가리키는 모든 페이지 => 
-        // {
-        //     spt_remove_page()
-        // 해당 페이지 cleanup
-        //     페이지 지우기 : pml4 매핑 없애고, frame도 palloc free, 구조체 자체 - frame, page … etc
-        //         => destroy(page) 재활용 할 수 있을듯 
-        // }
+/* --------------------------------- */
+
+static uint64_t 
+mmap_info_hash_func (const struct hash_elem *e, void *aux) {
+
+	return (uint64_t)hash_entry(e, struct mmap_info, element)->addr;
+
+		// hash_bytes로 변경
+
+	// struct mmap_info *mmap_info = hash_entry(e, struct mmap_info, element);
+	// return hash_bytes(
+	// 	&(mmap_info->addr),
+	// 	sizeof (mmap_info->addr)
+	// )
+}
+
+static bool
+mmap_info_hash_less (struct hash_elem *a, struct hash_elem *b, void *aux) {
+	return mmap_info_hash_func(a,NULL) < mmap_info_hash_func(b,NULL);
+}
+
+
+bool 
+file_init_mmap_info(struct thread *t) {
+	struct mmap_info_container *container = &t->mmap_info_container;
+	return hash_init (&(container->hash), mmap_info_hash_func, mmap_info_hash_less, NULL);
+}
+
+
+
+void 
+remove_mmap_info(struct thread *t, struct mmap_info *mmap_info) {
+	hash_delete(&t->mmap_info_container.hash, &mmap_info->element);
+
+	free(mmap_info);
+}
+
+struct mmap_info *
+find_mmap_info(struct thread *t, void *addr) {
+	struct mmap_info_container *container = &t->mmap_info_container;
+	struct mmap_info dummy = {
+		.addr = addr
+	};
+
+	struct hash_elem *res = hash_find(&t->mmap_info_container.hash, &dummy.element);
+	if(res == NULL) {
+		return NULL;
+	} else {
+		return hash_entry(res, struct mmap_info, element);
+	}
+}
+
+bool 
+set_mmap_info(struct thread *t, struct file *f, void *addr, size_t length) {
+
+	struct mmap_info *mmap_info = malloc(sizeof(*mmap_info));
+	if(mmap_info == NULL) {
+		return false;
+	}
+
+	*mmap_info = (struct mmap_info) {
+		.addr = addr,
+		.file = f,
+		.length = length
+	};
+
+	if(hash_insert(&(t->mmap_info_container.hash), &mmap_info->element) != NULL) {
+		free(mmap_info);
+		return false;
+	} else {
+		return true;
+	}
+}
+
+/* ----------------- */
+
+struct mmap_action_aux {
+	mmap_info_action_func *action;
+	void *aux;
+};
+
+static bool
+mmap_info_translate_to_hash_action_func(struct hash_elem *e, void *aux) {
+	struct mmap_action_aux *mmap_aux = aux;
+	struct mmap_info *mmap_info = hash_entry(e, struct mmap_info, element);
+
+	if(mmap_aux->action == NULL) {
+		return true;
+	} else{
+		return (mmap_aux->action) (mmap_info, mmap_aux->aux);
+	}
+}
+
+bool mmap_info_apply(struct thread *t, mmap_info_action_func *mmap_func, void *aux) {
+	struct mmap_action_aux mmap_aux = {
+		.action = mmap_func,
+		.aux = aux
+	};
+	struct hash *hash = &(t->mmap_info_container.hash);
+	hash->aux = &mmap_aux;
+
+	bool res = hash_apply(hash, mmap_info_translate_to_hash_action_func);
+	hash->aux = NULL;
+	return res;
+}
+
+void 
+destroy_mmap_info_container(struct thread *t, mmap_info_action_func *mmap_func, void *aux) {
+		struct mmap_action_aux mmap_aux = {
+		.action = mmap_func,
+		.aux = aux
+	}; 
+
+	struct hash *hash = &(t->mmap_info_container.hash);
+	hash->aux = &mmap_aux;
+
+	hash_destroy(hash, mmap_info_translate_to_hash_action_func);
+	hash->aux = NULL;
 }
