@@ -125,6 +125,11 @@ mmap_alloc_pages (void *addr, size_t length, int writable,
 }
 
 /* Do the mmap */
+
+set_mmap_info(struct thread *, struct file *, void *addr, size_t length){
+
+};
+
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
@@ -139,20 +144,38 @@ do_mmap (void *addr, size_t length, int writable,
 		return NULL;
 	}
 
-	// set_mmap_info(struct thread *, struct file *, void *addr, size_t length);
+	set_mmap_info(thread_current(), file, addr, length);
+
 	return addr;
+}
+
+void
+fork_mmap (struct thread *src) {
+	mmap_info_apply(src, copy_mmap, NULL);
+}
+
+void
+copy_mmap(struct mmap_info *from){
+	set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	// struct mmap_info * find_mmap_info(thread, addr);
-
-	// destroy_mmap(struct mmap_info *);
+	struct mmap_info *mmap_info = find_mmap_info(thread_current(), addr);
+	if(!mmap_info){
+		return;
+	}
+	destroy_mmap(mmap_info);
 }
 
+void
+do_munmap_all (struct thread *curr){
+	mmap_info_apply(curr, destroy_mmap, NULL);
+}
 
-destroy_mmap (mmap_info)  {
+void
+destroy_mmap (struct mmap_info *mmap_info)  {
 	// mmap_info가 뭘 알려주나 - file 구조체 ref., mmap 등록한 addr, length
 
 	    // mmap_info가 가리키는 모든 페이지 => 
@@ -162,4 +185,16 @@ destroy_mmap (mmap_info)  {
         //     페이지 지우기 : pml4 매핑 없애고, frame도 palloc free, 구조체 자체 - frame, page … etc
         //         => destroy(page) 재활용 할 수 있을듯 
         // }
+	char *addr = mmap_info -> addr;
+	struct file *file = mmap_info -> file;
+	size_t length = mmap_info -> length;
+
+	for(size_t seek = 0; seek < length; seek += PGSIZE){
+		struct page *page = spt_find_page(&thread_current()->spt, addr + seek);
+		if (page == NULL) {
+			return;
+		}
+		spt_remove_page(&thread_current()->spt, page);
+	}
+	remove_mmap_info(thread_current(), mmap_info);
 }
