@@ -24,7 +24,7 @@ struct mmap_info_container {
 
 void vm_file_init (void);
 bool file_backed_initializer (struct page *page, enum vm_type type, void *kva);
-void *do_mmap(void *addr, size_t length, int writable,
+void *do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset);
 void do_munmap (void *va);
 
@@ -39,5 +39,8 @@ bool set_mmap_info(struct thread *t, struct file *f, void *addr, size_t length);
 bool mmap_info_apply(struct thread *t, mmap_info_action_func *mmap_func, void *aux);
 void destroy_mmap_info_container(struct thread *t, mmap_info_action_func *mmap_func, void *aux);
 
+void do_munmap_all (struct thread *);
+void destroy_mmap (struct mmap_info *);
+void fork_mmap (struct thread *);
 
 #endif

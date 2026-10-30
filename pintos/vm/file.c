@@ -126,6 +126,8 @@ mmap_alloc_pages (void *addr, size_t length, int writable,
 }
 
 /* Do the mmap */
+
+
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
@@ -140,18 +142,35 @@ do_mmap (void *addr, size_t length, int writable,
 		return NULL;
 	}
 
-	// set_mmap_info(struct thread *, struct file *, void *addr, size_t length);
+	set_mmap_info(thread_current(), file, addr, length);
+
 	return addr;
+}
+
+void
+fork_mmap (struct thread *src) {
+	mmap_info_apply(src, copy_mmap, NULL);
+}
+
+void
+copy_mmap(struct mmap_info *from){
+	set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	// struct mmap_info * find_mmap_info(thread, addr);
-
-	// destroy_mmap(struct mmap_info *);
+	struct mmap_info *mmap_info = find_mmap_info(thread_current(), addr);
+	if(!mmap_info){
+		return;
+	}
+	destroy_mmap(mmap_info);
 }
 
+void
+do_munmap_all (struct thread *curr){
+	mmap_info_apply(curr, destroy_mmap, NULL);
+}
 
 
 /* --------------------------------- */
@@ -272,4 +291,20 @@ destroy_mmap_info_container(struct thread *t, mmap_info_action_func *mmap_func, 
 
 	hash_destroy(hash, mmap_info_translate_to_hash_action_func);
 	hash->aux = NULL;
+}
+void
+destroy_mmap (struct mmap_info *mmap_info)  {
+
+	char *addr = mmap_info -> addr;
+	struct file *file = mmap_info -> file;
+	size_t length = mmap_info -> length;
+
+	for(size_t seek = 0; seek < length; seek += PGSIZE){
+		struct page *page = spt_find_page(&thread_current()->spt, addr + seek);
+		if (page == NULL) {
+			return;
+		}
+		spt_remove_page(&thread_current()->spt, page);
+	}
+	remove_mmap_info(thread_current(), mmap_info);
 }
