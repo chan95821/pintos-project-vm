@@ -142,19 +142,37 @@ do_mmap (void *addr, size_t length, int writable,
 		return NULL;
 	}
 
-	set_mmap_info(thread_current(), file, addr, length);
+	set_mmap_info(thread_current(), new_file, addr, length);
 
 	return addr;
 }
 
 void
 fork_mmap (struct thread *src) {
-	mmap_info_apply(src, copy_mmap, NULL);
+	mmap_info_apply(src, copy_mmap_info, NULL);
 }
 
 bool
 copy_mmap_info(struct mmap_info *from, void *aux UNUSED) { 
 	return set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
+}
+
+static bool
+update_file_page_ptr(struct mmap_info *mmap_info, struct thread *current) {
+	void * addr = mmap_info->addr;
+	struct page *page;
+	size_t length = mmap_info->length;
+	for (int step = 0; step < length; step += PGSIZE) {
+		page = spt_find_page(&current->spt, addr + step);
+		page->file.file_src->file = mmap_info->file;
+	}
+	return true;
+
+}
+
+bool
+update_file_page(struct thread *current) {
+	return mmap_info_apply(current, update_file_page_ptr, current);
 }
 
 /* Do the munmap */
@@ -170,14 +188,6 @@ do_munmap (void *addr) {
 void
 do_munmap_all (struct thread *curr){
 	mmap_info_apply(curr, destroy_mmap, NULL);
-}
-
-static 
-
-bool mmap_update_file_page(struct thread *) {
-
-	// mmap apply
-	// for each page  -> update file_src according to new mmap_info
 }
 
 /* --------------------------------- */
@@ -207,8 +217,6 @@ file_init_mmap_info(struct thread *t) {
 	struct mmap_info_container *container = &t->mmap_info_container;
 	return hash_init (&(container->hash), mmap_info_hash_func, mmap_info_hash_less, NULL);
 }
-
-
 
 void 
 remove_mmap_info(struct thread *t, struct mmap_info *mmap_info) {
@@ -291,7 +299,7 @@ destroy_mmap_info_container(struct thread *t, mmap_info_action_func *mmap_func, 
 		struct mmap_action_aux mmap_aux = {
 		.action = mmap_func,
 		.aux = aux
-	}; 
+	};
 
 	struct hash *hash = &(t->mmap_info_container.hash);
 	hash->aux = &mmap_aux;
