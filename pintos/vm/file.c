@@ -10,6 +10,7 @@
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
+static bool copy_mmap_info(struct mmap_info *from, void *aux UNUSED);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -152,28 +153,11 @@ fork_mmap (struct thread *src) {
 	mmap_info_apply(src, copy_mmap_info, NULL);
 }
 
-bool
+static bool
 copy_mmap_info(struct mmap_info *from, void *aux UNUSED) { 
 	return set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
 }
 
-static bool
-update_file_page_ptr(struct mmap_info *mmap_info, struct thread *current) {
-	void * addr = mmap_info->addr;
-	struct page *page;
-	size_t length = mmap_info->length;
-	for (int step = 0; step < length; step += PGSIZE) {
-		page = spt_find_page(&current->spt, addr + step);
-		page->file.file_src->file = mmap_info->file;
-	}
-	return true;
-
-}
-
-bool
-update_file_page(struct thread *current) {
-	return mmap_info_apply(current, update_file_page_ptr, current);
-}
 
 /* Do the munmap */
 void
@@ -188,6 +172,30 @@ do_munmap (void *addr) {
 void
 do_munmap_all (struct thread *curr){
 	mmap_info_apply(curr, destroy_mmap, NULL);
+}
+
+
+static bool
+update_file_page_action_func(struct mmap_info *mmap_info, struct thread *t) {
+	int64_t mmap_addr = (int64_t)mmap_info->addr;
+	int64_t mmap_length = mmap_info->length;
+	struct file *new_file = mmap_info->file;
+
+	for(int64_t addr = mmap_addr; addr < mmap_addr + mmap_length; addr += PGSIZE) {
+		struct page *page = spt_find_page(&t->spt, addr);
+		if(page == NULL) {
+			return false;
+		}
+		ASSERT(VM_TYPE(page->operations->type) == VM_FILE);
+
+		page->file.file_src->file = new_file;
+	}
+
+	return true;
+}
+
+void update_file_page(struct thread *t) {
+	mmap_info_apply(t, update_file_page_action_func, t);
 }
 
 /* --------------------------------- */

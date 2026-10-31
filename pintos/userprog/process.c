@@ -510,6 +510,7 @@ process_cleanup (void) {
 
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
+	// destroy_mmap_info_container
 #endif
 
 	uint64_t *pml4;
