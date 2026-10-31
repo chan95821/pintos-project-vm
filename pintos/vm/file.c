@@ -143,7 +143,7 @@ do_mmap (void *addr, size_t length, int writable,
 		return NULL;
 	}
 
-	set_mmap_info(thread_current(), file, addr, length);
+	set_mmap_info(thread_current(), new_file, addr, length);
 
 	return addr;
 }
@@ -157,6 +157,7 @@ static bool
 copy_mmap_info(struct mmap_info *from, void *aux UNUSED) { 
 	return set_mmap_info(thread_current(), file_reopen(from->file), from->addr, from->length);
 }
+
 
 /* Do the munmap */
 void
@@ -224,8 +225,6 @@ file_init_mmap_info(struct thread *t) {
 	struct mmap_info_container *container = &t->mmap_info_container;
 	return hash_init (&(container->hash), mmap_info_hash_func, mmap_info_hash_less, NULL);
 }
-
-
 
 void 
 remove_mmap_info(struct thread *t, struct mmap_info *mmap_info) {
@@ -308,7 +307,7 @@ destroy_mmap_info_container(struct thread *t, mmap_info_action_func *mmap_func, 
 		struct mmap_action_aux mmap_aux = {
 		.action = mmap_func,
 		.aux = aux
-	}; 
+	};
 
 	struct hash *hash = &(t->mmap_info_container.hash);
 	hash->aux = &mmap_aux;
