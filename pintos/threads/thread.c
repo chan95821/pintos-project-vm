@@ -266,6 +266,10 @@ thread_create (const char *name, int priority,
 		palloc_free_page(t);
 		return TID_ERROR;
 	}
+
+	if(!file_init_mmap_info(t)) {
+		return TID_ERROR;
+	}
 	#endif
 
 	if(thread_mlfqs){
