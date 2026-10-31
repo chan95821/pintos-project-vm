@@ -221,7 +221,7 @@ __do_fork (void *aux) {
 	// copy mmap_info_container and update to reopened file ref. for each file pages
 	{
 		/* duplicate mmap_info_container */
-		copy_mmap_info(parent);
+		fork_mmap(parent);
 		// + add update file_src reference to reopened file
 		update_file_page(current);
 	}
@@ -510,6 +510,7 @@ process_cleanup (void) {
 
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
+	// destroy_mmap_info_container
 #endif
 
 	uint64_t *pml4;
