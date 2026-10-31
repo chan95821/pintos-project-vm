@@ -227,7 +227,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 
 	if(page == NULL) {
 		//스택 접근 판단 로직 - tc 확인해봐야
-		if(addr >= thread_current ()->user_rsp - 8 && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
+		if(addr >= thread_current ()->user_rsp - 8 && addr < USER_STACK && addr >= MAX_STACK_ADDR) { // if 또는 thread에 저장한 rsp
 			return vm_stack_growth(addr); 
 		} else {
 			return false;
