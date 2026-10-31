@@ -44,7 +44,7 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
-static bool copy_file_frame(struct page *dst_page, struct page *src_page);
+static bool copy_frame(struct page *dst_page, struct page *src_page);
 
 static uint64_t
 hash_func (struct hash_elem *elem, void *aux) {
@@ -327,7 +327,7 @@ page_copy_anon(struct page *dst_page, struct page *src_page) {
 	memcpy(dst_page, src_page, sizeof(struct page));
 	dst_page->frame = NULL;
 
-	return copy_file_frame(dst_page, src_page);
+	return copy_frame(dst_page, src_page);
 }
 
 static struct file_src *
@@ -352,7 +352,7 @@ copy_file_page(struct page *dst_page, struct page *src_page) {
 }
 
 static bool
-copy_file_frame(struct page *dst_page, struct page *src_page) {
+copy_frame(struct page *dst_page, struct page *src_page) {
 	struct frame *new_frame;
 	if (!(new_frame = vm_get_frame())) {
 		return false;
@@ -367,7 +367,7 @@ copy_file_frame(struct page *dst_page, struct page *src_page) {
 static bool
 page_copy_file_backed(struct page *dst_page, struct page *src_page) {
 	if (copy_file_page(dst_page, src_page)) {
-		if (copy_file_frame(dst_page, src_page)) {
+		if (copy_frame(dst_page, src_page)) {
 			return true;
 		}
 	}
