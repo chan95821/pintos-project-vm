@@ -216,6 +216,8 @@ __do_fork (void *aux) {
 	supplemental_page_table_init (&current->spt);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
+	
+	fork_mmap(current); // 이거 이름을 fork_mmap_container로
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
 		goto error;
