@@ -345,7 +345,7 @@ copy_file_page(struct page *dst_page, struct page *src_page) {
 	memcpy(dst_page, src_page, sizeof(struct page));
 	dst_page->frame = NULL;
 
-	if (dst_page->file.file_src = copy_file_src(src_page)) {
+	if (dst_page->file.file_src = copy_file_src(src_page->file.file_src)) {
 		return true;
 	}
 	return false;
