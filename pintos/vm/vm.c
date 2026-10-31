@@ -337,20 +337,37 @@ page_copy_anon(struct page *dst_page, struct page *src_page) {
 	return true;
 }
 
+static struct file_src *
+copy_file_src(struct file_src *src) {
+	struct file_src *new_file_src = malloc(sizeof(*new_file_src));
+	if(new_file_src == NULL) return NULL;
+	*new_file_src = *src;
+
+	return new_file_src;
+}
+
 static bool
 copy_file_page(struct page *dst_page, struct page *src_page) {
 	memcpy(dst_page, src_page, sizeof(struct page));
 	dst_page->frame = NULL;
 
-	if (dst_page->file.file_src = copy_file_src(src_page)) {
+	if (dst_page->file.file_src = copy_file_src(src_page->file.file_src)) {
 		return true;
 	}
 	return false;
 }
 
 static bool
-copy_file_frame(struct page *dst_page, struct page *src_page) {
+copy_file_frame(struct page *dst_page, struct page *src_page) { // 제안 : copy_frame이라고 두고 다른 type도 쓸 수 있게 하기
+	struct frame *new_frame;
+	if (!(new_frame = vm_get_frame())) {
+		return false;
+	}
 
+	new_frame->page = dst_page;
+	dst_page->frame = new_frame;
+	memcpy(new_frame->kva,te_file_page(struct thread  src_page->frame->kva, PGSIZE);
+	return true;
 }
 
 static bool
