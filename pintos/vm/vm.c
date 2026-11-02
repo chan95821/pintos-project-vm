@@ -204,15 +204,14 @@ vm_get_frame (void) {
 	void *kva = palloc_get_page(PAL_USER); 
 	if( kva == NULL) {
 		frame = vm_evict_frame();
-	}
-  else {
-  	frame = malloc(sizeof(*frame));
-  }
-  ASSERT (frame != NULL);
+	} else {
+  		frame = malloc(sizeof(*frame));
+		frame->kva = kva;
+  	}
+  	ASSERT (frame != NULL);
 
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 
-	frame->kva = kva;
 	frame->page = NULL;
 	ASSERT (frame->page == NULL);
 

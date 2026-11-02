@@ -32,7 +32,9 @@ vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	swap_disk = disk_get (1, 1);
 	/*전역에서 관리하는 bitmap이라 init할 때 만들어주고 power off 될 때까지 destroy할 필요 없음*/
-	swap_table = bitmap_create(disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE));
+	if ((swap_table = bitmap_create(disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE))) == NULL) {
+		PANIC("fail to initialize swap_table");
+	}
 	lock_init(&swap_table_lock);
 }
 
@@ -93,7 +95,7 @@ anon_swap_in (struct page *page, void *kva) {
 
 	pop_frame_from_swap(anon_page, kva);
 
-	return;
+	return true;
 	
 }
 
@@ -145,9 +147,8 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	// destroy에서 frame NULL인 분기에 대해 PANIC("todo") 넣기
 	if(page->frame == NULL) {
-		PANIC("todo, after swap Impl. Abnormal if no swapped out frames");
+		free_disk_slot(anon_page->swap_index);
 	} else {
 		free(page->frame);
 	}
