@@ -201,18 +201,20 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 
-	void *kva = palloc_get_page(PAL_USER); 
+	void *kva = palloc_get_page(PAL_USER | PAL_ZERO); 
 	if( kva == NULL) {
 		frame = vm_evict_frame();
+		kva = palloc_get_page(PAL_USER | PAL_ZERO);
 	}
   else {
   	frame = malloc(sizeof(*frame));
+	frame->kva = kva;
   }
   ASSERT (frame != NULL);
 
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 
-	frame->kva = kva;
+
 	frame->page = NULL;
 	ASSERT (frame->page == NULL);
 
