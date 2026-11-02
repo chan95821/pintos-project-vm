@@ -95,7 +95,7 @@ file_backed_swap_out (struct page *page) {
 	struct file_src *file_src = file_page->file_src;
 	off_t write = 0;
 	if (!pml4_is_dirty(thread_current ()->pml4, page->va)){
-		memset(page->frame->kva, 0, PGSIZE);
+		// memset(page->frame->kva, 0, PGSIZE);
 	} else {
 		write = write_page_to_file(file_src->file, page->frame->kva, file_src->read_bytes, file_src->offset);
 	}
@@ -113,7 +113,7 @@ file_backed_destroy (struct page *page) {
 	} else {
 		off_t write = 0;
 		if (!pml4_is_dirty(thread_current ()->pml4, page->va)){
-			memset(page->frame->kva, 0, PGSIZE);
+			// memset(page->frame->kva, 0, PGSIZE);
 		} else {
 			write = write_page_to_file(file_src->file, page->frame->kva, file_src->read_bytes, file_src->offset);
 		}
