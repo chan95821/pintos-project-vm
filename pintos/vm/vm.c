@@ -184,7 +184,9 @@ vm_evict_frame (void) {
 		return NULL;
 	}
 	swap_out(victim->page);
-	palloc_free_page(victim->kva);
+
+	pml4_clear_page(thread_current ()->pml4, victim->page->va);
+	victim->page->frame = NULL;
 	/**
 	 * Update corresponding page status -
 	 * using swap_out would be adeq
@@ -204,7 +206,7 @@ vm_get_frame (void) {
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO); 
 	if( kva == NULL) {
 		frame = vm_evict_frame();
-		kva = palloc_get_page(PAL_USER | PAL_ZERO);
+		memset(frame->kva, 0, PGSIZE);
 	}
   else {
   	frame = malloc(sizeof(*frame));
@@ -311,6 +313,7 @@ vm_do_claim_page (struct page *page) {
 	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->is_writable )) { // va, kva should be page aligned
 		palloc_free_page(frame->kva);
 		free(frame);
+		page->frame = NULL;
 		/** TODO: frame table 업데이트 로직 고민하기
 		 * cand 1. update frame table
 		 * cand 2. process might terminate if returned false. cleanup frames/pages in thread_exit procedure
