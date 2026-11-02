@@ -1032,7 +1032,6 @@ setup_stack (struct intr_frame *if_) {
 		return success;
 	}
 
-	memset(stack_bottom, 0, PGSIZE);
 
 	return success;
 }
