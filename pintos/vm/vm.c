@@ -134,23 +134,21 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
+	ASSERT(intr_get_level() == INTR_OFF);
 	struct frame *victim = NULL;
 	/* TODO: The policy for eviction is up to you. */
 	struct thread *thread = NULL;
 	struct page *page = NULL;
-	enum intr_level old_level = intr_disable();
 	for(int size = list_size(&all_list); size --> 0; list_push_back(&all_list, &thread->all)){
 		thread = list_entry(list_pop_front(&all_list), struct thread, all);
 		if (thread && thread->pml4) {
 			page = spt_get_unaccessed_page_with_frame(thread, &thread->spt);
 			if (page) {
 				list_push_back(&all_list, &thread->all);
-				intr_set_level(old_level);
 				break;
 			}		
 		}
 	}
-	intr_set_level(old_level);
 	for(struct list_elem *elem = list_begin(&all_list); elem != list_tail(&all_list); elem = list_next(elem)){
 		if (!list_entry(elem, struct thread, all)->pml4) {
 			continue;
@@ -179,12 +177,16 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
+	enum intr_level old_level = intr_disable();
 	struct frame *victim = vm_get_victim ();
+	intr_set_level(old_level);
 	if (!victim) {
 		return NULL;
 	}
 	swap_out(victim->page);
-	palloc_free_page(victim->kva);
+
+	pml4_clear_page(thread_current ()->pml4, victim->page->va);
+	victim->page->frame = NULL;
 	/**
 	 * Update corresponding page status -
 	 * using swap_out would be adeq
@@ -204,7 +206,7 @@ vm_get_frame (void) {
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO); 
 	if( kva == NULL) {
 		frame = vm_evict_frame();
-		kva = palloc_get_page(PAL_USER | PAL_ZERO);
+		memset(frame->kva, 0, PGSIZE);
 	}
   else {
   	frame = malloc(sizeof(*frame));
@@ -311,6 +313,7 @@ vm_do_claim_page (struct page *page) {
 	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->is_writable )) { // va, kva should be page aligned
 		palloc_free_page(frame->kva);
 		free(frame);
+		page->frame = NULL;
 		/** TODO: frame table 업데이트 로직 고민하기
 		 * cand 1. update frame table
 		 * cand 2. process might terminate if returned false. cleanup frames/pages in thread_exit procedure
