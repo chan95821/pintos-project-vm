@@ -288,11 +288,6 @@ pml4_set_dirty (uint64_t *pml4, const void *vpage, bool dirty) {
 	}
 }
 
-void
-pml4_set_write_bit (uint64_t *pml4, const void *vpage, bool writable) {
-	/*TODO: write 비트 설정하고 tlb 비워주기 -> 위에 pml4 set dirty 처럼 해주면 됨 */
-}
-
 /* Returns true if the PTE for virtual page VPAGE in PML4 has been
  * accessed recently, that is, between the time the PTE was
  * installed and the last time it was cleared.  Returns false if

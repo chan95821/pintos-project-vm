@@ -49,7 +49,6 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem element;
-	struct list_elem shared_page_element;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -62,13 +61,12 @@ struct page {
 #endif
 	};
 	bool is_writable;
-	uint64_t *pml4;
 };
 
 /* The representation of "frame" */
 struct frame {
 	void *kva;
-	struct list shared_page;
+	struct page *page;
 };
 
 struct file_src {
