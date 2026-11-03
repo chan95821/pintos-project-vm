@@ -138,7 +138,7 @@ push_frame_to_swap (struct anon_page *anon_page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-
+	
 	anon_page->swap_index = push_frame_to_swap (anon_page, page->frame->kva);
 
 	return true;
@@ -148,17 +148,13 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	// if(page->frame == NULL) {
-	// 	free_disk_slot(anon_page->swap_index);
-	// } else {
-	// 	free(page->frame);
-	// }
-	if(page->frame == NULL) {
-		free_disk_slot(anon_page->swap_index);
-	} else if (list_size(&page->frame->shared_page) > 1) {
-		list_remove(&page->shared_page_element);
-		pml4_clear_page(page->thread->pml4, page->va);
-	} else {
-		free(page->frame);
+	
+	if(page->frame != NULL){
+		if(page->frame->kva == NULL) {
+			free_disk_slot(anon_page->swap_index);
+		} else {
+			free(page->frame);
+		}
 	}
+
 }

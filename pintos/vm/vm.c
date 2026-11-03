@@ -9,6 +9,7 @@
 #include "lib/kernel/hash.h"
 #include <string.h>
 #include "threads/thread.h"
+#include "lib/kernel/list.h"
 
 #define MAX_STACK_ADDR 0x47380000
 
@@ -78,7 +79,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		if (!page) {
 			goto err;
 		}
-
+		page->pml4 = thread_current ()->pml4;
 		switch (VM_TYPE(type)) {
 			case VM_ANON : {
 				uninit_new(page, upage, init, type, aux, anon_initializer);
@@ -126,8 +127,9 @@ spt_insert_page (struct supplemental_page_table *spt,
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	
-	hash_delete(&spt->hash, &page->element);
+	hash_delete(&spt->hash, &page->element);	
 	vm_dealloc_page (page);
+
 	return true;
 }
 
@@ -185,7 +187,6 @@ vm_evict_frame (void) {
 	}
 	swap_out(victim->page);
 
-	pml4_clear_page(thread_current ()->pml4, victim->page->va);
 	victim->page->frame = NULL;
 // TODO: deprecated
 	victim->page = NULL;
@@ -210,11 +211,14 @@ vm_get_frame (void) {
 		frame = vm_evict_frame();
 		memset(frame->kva, 0, PGSIZE);
 	}
-    else {
-  		frame = malloc(sizeof(*frame));
-		frame->kva = kva;
-  	}
-  	ASSERT (frame != NULL);
+
+	// frame에서 kva 뽑아내고 링크해주면 된다 ,, - 
+  else {
+  	frame = malloc(sizeof(*frame));
+	frame->kva = kva;
+	list_init(&frame->shared_page);
+  }
+  ASSERT (frame != NULL);
 
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 
@@ -242,7 +246,31 @@ vm_stack_growth (void *addr) {
 
 /* Handle the fault on write_protected page */
 static bool
-vm_handle_wp (struct page *page UNUSED) {
+vm_handle_wp (struct page *page) {
+	if(!page->is_writable) {
+		return false;
+	} else if(page->frame != NULL && page->frame->kva != NULL) {
+		// faux-wp, frame->kva == NULL인 경우는 do claim으로 넘어가야, handle_wp로 들어가야 하는 경우는 cow인 경우밖에 없음
+		struct frame *cow_frame = page->frame;
+
+		list_remove(&page->shared_page_element);
+
+		enum intr_level old_lv = intr_disable();
+
+		struct frame *new_frame = vm_get_frame();
+		memcpy(new_frame->kva, cow_frame->kva, PGSIZE);
+
+		if(list_size(&cow_frame->shared_page) == 1) {
+			struct page *remain_page = list_entry(list_begin(&cow_frame->shared_page), struct page, shared_page_element);
+			pml4_set_writable(remain_page->pml4, remain_page->va, true);
+		}
+		page->frame = new_frame;
+		list_insert(&new_frame->shared_page, &page->shared_page_element);
+		intr_set_level(old_lv);
+		return true;
+	} else {
+		return vm_do_claim_page(page);
+	}
 }
 
 bool
@@ -277,9 +305,8 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		}
 	}
 
-	
 	if(!page->is_writable && write) {
-		return false;
+		return vm_handle_wp(page);
 	}
 
 	return vm_do_claim_page(page);
@@ -290,6 +317,14 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
  * DO NOT MODIFY THIS FUNCTION. */
 void
 vm_dealloc_page (struct page *page) {
+
+	struct frame *frame = page->frame;
+	if(frame != NULL) {
+		list_remove(&page->shared_page_element);
+		if(list_size(&frame->shared_page) >= 1) {
+			page->frame = NULL;
+		}
+	}
 	destroy (page);
 	free (page);
 }
@@ -417,6 +452,7 @@ copy_frame(struct page *dst_page, struct page *src_page) {
 	return true;
 }
 
+// 
 static bool
 page_copy_file_backed(struct page *dst_page, struct page *src_page) {
 	if (copy_file_page(dst_page, src_page) && copy_frame(dst_page, src_page)) {
@@ -502,6 +538,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	return true;
 }
 
+
+
+
 void
 spt_set_unaccessed (struct thread *thread, struct supplemental_page_table *spt) {
 	struct hash_iterator i;
@@ -558,9 +597,7 @@ spt_free_page (struct hash_elem *e, void *aux) {
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and */
+	spt->hash.aux = spt;
 	hash_clear(&spt->hash, spt_free_page);
-
-	/* TODO: writeback all the modified contents to the storage. */ 
-		// 아직까지는 file backed 타입 없음, 후순위
-
+	spt->hash.aux = NULL;
 }
