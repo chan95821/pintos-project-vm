@@ -70,6 +70,7 @@ struct page {
 /* The representation of "frame" */
 struct frame {
 	void *kva;
+	//TODO: deprecated - page 없애기
 	struct page *page;
 	struct list shared_page;
 };
