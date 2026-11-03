@@ -6,6 +6,7 @@
 #include "threads/synch.h"
 #include "lib/kernel/bitmap.h"
 #include "threads/malloc.h"
+#include "threads/mmu.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -147,8 +148,16 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	// if(page->frame == NULL) {
+	// 	free_disk_slot(anon_page->swap_index);
+	// } else {
+	// 	free(page->frame);
+	// }
 	if(page->frame == NULL) {
 		free_disk_slot(anon_page->swap_index);
+	} else if (list_size(&page->frame->shared_page) > 1) {
+		list_remove(&page->shared_page_element);
+		pml4_clear_page(page->thread->pml4, page->va);
 	} else {
 		free(page->frame);
 	}
