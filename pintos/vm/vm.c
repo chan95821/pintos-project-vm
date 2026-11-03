@@ -187,6 +187,7 @@ vm_evict_frame (void) {
 
 	pml4_clear_page(thread_current ()->pml4, victim->page->va);
 	victim->page->frame = NULL;
+// TODO: deprecated
 	victim->page = NULL;
 	/**
 	 * Update corresponding page status -
