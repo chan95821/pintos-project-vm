@@ -333,3 +333,4 @@ pml4_set_accessed (uint64_t *pml4, const void *vpage, bool accessed) {
 			invlpg ((uint64_t) vpage);
 	}
 }
+

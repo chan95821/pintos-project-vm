@@ -21,6 +21,7 @@ bool pml4_is_writable (uint64_t *pml4, const void *upage);
 void pml4_set_writable (uint64_t *pml4, const void *upage, bool writable);
 bool pml4_is_accessed (uint64_t *pml4, const void *upage);
 void pml4_set_accessed (uint64_t *pml4, const void *upage, bool accessed);
+void pml4_set_writable (uint64_t *pml4, const void *vpage, bool writable);
 
 #define is_writable(pte) (*(pte) & PTE_W)
 #define is_user_pte(pte) (*(pte) & PTE_U)
