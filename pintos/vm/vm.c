@@ -131,6 +131,20 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	return true;
 }
 
+static void
+clear_link_with_victim (struct page *page) {
+	struct page *page
+
+	for(struct list_elem *curr = list_begin(frame->shared_page);
+		curr != list_end(frame->shared_page);
+		curr = list_next(curr)) {
+			page = list_entry(curr, struct page, shared_page_element);
+			pml4_set_write_bit(page->pml4, page->va, true);
+			pml4_clear_page(page->pml4, page->va);
+			page->frame->kva = NULL;
+	}
+}
+
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
@@ -169,7 +183,8 @@ vm_get_victim (void) {
 	if (!page) {
 		return NULL;
 	}
-	victim = page->frame;
+	victim = page->frame->kva;
+	clear_link_with_victim (page);
 	return victim;
 }
 
@@ -260,7 +275,11 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	
 	if (addr_isnt_user_vaild (addr)) {
 		return false;           
-	} 
+	}
+
+	if (!writable()) {
+		handle_with_cow();
+	}
 
 	page = spt_find_page(spt, addr);
 
@@ -405,9 +424,22 @@ copy_frame(struct page *dst_page, struct page *src_page) {
 }
 
 static bool
+page_shared_frame (uint64_t *parent_pml4, struct page *dst_page, struct page *src_page) {
+	struct frame *new_frame;
+	new_frame = vm_get_frame();
+
+	set_write_bit_both();
+
+	new_frame->page = dst_page;
+	dst_page->frame = new_frame;
+
+	return true;
+}
+
+static bool
 page_copy_file_backed(struct page *dst_page, struct page *src_page) {
 	if (copy_file_page(dst_page, src_page)) {
-		if (copy_frame(dst_page, src_page)) {
+		if (page_shared_frame(dst_page, src_page)) {
 			return true;
 		}
 	}
@@ -469,6 +501,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 	hash_first(&i, &src->hash);
 	while ((curr = hash_next(&i))){
+		uint64_t *parent_pml4 = list_entry(src, struct thread, spt);
 		if (!(dst_page = page_copy(hash_entry(curr, struct page, element)))){
 			return false;
 		}
@@ -502,6 +535,20 @@ spt_set_unaccessed (struct thread *thread, struct supplemental_page_table *spt) 
 	return;
 }
 
+static bool
+check_all_shared_pages_accessed (struct frame *frame) {
+	struct page *page;
+	for(struct list_elem *curr = list_begin(frame->shared_page);
+		curr != list_end(frame->shared_page);
+		curr = list_next(curr)) {
+			page = list_entry(curr, struct page, shared_page_element);
+			if (!pm14_is_accessed(page->pml4, page->va)) {
+				return false;
+			}
+	}
+	return true;
+}
+
 struct page *
 spt_get_unaccessed_page_with_frame (struct thread *thread, struct supplemental_page_table *spt) {
 	struct hash_iterator i;
@@ -511,7 +558,7 @@ spt_get_unaccessed_page_with_frame (struct thread *thread, struct supplemental_p
 	hash_first(&i, &spt->hash);
 	while (curr = hash_next(&i)) {
 		page = hash_entry(curr, struct page, element);
-		if (page->frame && !pml4_is_accessed(thread->pml4, page->va)) {
+		if (page->frame && page->frame->kva && !check_all_shared_pages_accessed(page->frame)) {
 			return page;
 		}
 	}
