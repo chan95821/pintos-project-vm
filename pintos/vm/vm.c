@@ -189,8 +189,8 @@ clear_link_in_shared_page (struct frame *frame, struct list_elem *end) {
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
-static struct frame *
-vm_evict_frame (void) {
+static void *
+vm_evict_kva (void) {
 	enum intr_level old_level = intr_disable();
 	struct frame *victim = vm_get_victim ();
 	intr_set_level(old_level);
@@ -201,15 +201,11 @@ vm_evict_frame (void) {
 	struct page *first_page = list_entry(list_begin(&victim->shared_page), struct page, shared_page_element);
 	swap_out(first_page);
 
-	struct frame *new_frame = malloc(sizeof(struct frame));
-	if (!new_frame) {
-		PANIC ("no page to evict"); /*TODO : 이걸 어떻게 돌려줄 것인지*/
-	}
-	new_frame->kva = victim->kva;
+	void *victim_kva = victim->kva;
 
 	clear_link_in_shared_page (victim, list_end(&victim->shared_page));
 
-	return new_frame;
+	return victim_kva;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -220,18 +216,18 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
+	frame = malloc(sizeof(*frame));
+	ASSERT (frame != NULL);
 
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO); 
 	if( kva == NULL) {
-		frame = vm_evict_frame();
+		frame->kva = vm_evict_kva();
 		memset(frame->kva, 0, PGSIZE);
 	} else {
-  		frame = malloc(sizeof(*frame));
 		frame->kva = kva;
   	}
-  	ASSERT (frame != NULL);
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
-	frame->page = NULL;
+	list_init(&frame->shared_page);
 	ASSERT (frame->page == NULL);
 
 	return frame;
@@ -553,11 +549,11 @@ check_all_shared_pages_accessed (struct frame *frame) {
 		curr != list_end(&frame->shared_page);
 		curr = list_next(curr)) {
 			page = list_entry(curr, struct page, shared_page_element);
-			if (pm14_is_accessed(page->pml4, page->va)) {
-				return false;
+			if (pml4_is_accessed(page->pml4, page->va)) {
+				return true;
 			}
 	}
-	return true;
+	return false;
 }
 
 struct page *
@@ -585,7 +581,7 @@ spt_get_any_page_with_frame (struct supplemental_page_table *spt) {
 	hash_first(&i, &spt->hash);
 	while (curr = hash_next(&i)) {
 		page = hash_entry(curr, struct page, element);
-		if (page->frame) {
+		if (page->frame && page->frame->kva) {
 			return page;
 		}
 	}
