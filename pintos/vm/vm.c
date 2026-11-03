@@ -354,11 +354,11 @@ copy_error_free_memory (struct page *dst_page) {
 static bool
 page_copy_uninit(struct page *dst_page, struct page *src_page) {
 	memcpy(dst_page, src_page, sizeof(struct page));
-
+	dst_page->thread = thread_current();
 	if(src_page->uninit.aux == NULL) {
 		return true;
 	}
-	dst_page->thread = thread_current();
+	
 	dst_page->uninit.aux = NULL;
 	struct file_src *aux = malloc(sizeof(struct file_src));
 	if (!aux) {
