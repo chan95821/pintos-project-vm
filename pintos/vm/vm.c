@@ -131,20 +131,6 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	return true;
 }
 
-static void
-clear_link_with_victim (struct page *page) {
-	struct page *page
-
-	for(struct list_elem *curr = list_begin(frame->shared_page);
-		curr != list_end(frame->shared_page);
-		curr = list_next(curr)) {
-			page = list_entry(curr, struct page, shared_page_element);
-			pml4_set_write_bit(page->pml4, page->va, true);
-			pml4_clear_page(page->pml4, page->va);
-			page->frame->kva = NULL;
-	}
-}
-
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
@@ -181,11 +167,24 @@ vm_get_victim (void) {
 		}
 	}
 	if (!page) {
-		return NULL;
+		PANIC ("no page to evict");
 	}
-	victim = page->frame->kva;
-	clear_link_with_victim (page);
+	victim = page->frame;
 	return victim;
+}
+
+static void
+clear_link_in_shared_page (struct frame *frame, struct list_elem *end) {
+	struct page *page;
+	struct list_elem *curr;
+
+	for(curr = list_begin(&frame->shared_page);
+		curr != end;
+		curr = list_next(curr)) {
+			page = list_entry(curr, struct page, shared_page_element);
+			pml4_clear_page(page->pml4, page->va);
+			page->frame->kva = NULL;
+	}
 }
 
 /* Evict one page and return the corresponding frame.
@@ -198,15 +197,19 @@ vm_evict_frame (void) {
 	if (!victim) {
 		return NULL;
 	}
-	swap_out(victim->page);
 
-	pml4_clear_page(thread_current ()->pml4, victim->page->va);
-	victim->page->frame = NULL;
-	/**
-	 * Update corresponding page status -
-	 * using swap_out would be adeq
-	 */
-	return victim;
+	struct page *first_page = list_entry(list_begin(&victim->shared_page), struct page, shared_page_element);
+	swap_out(first_page);
+
+	struct frame *new_frame = malloc(sizeof(struct frame));
+	if (!new_frame) {
+		PANIC ("no page to evict"); /*TODO : 이걸 어떻게 돌려줄 것인지*/
+	}
+	new_frame->kva = victim->kva;
+
+	clear_link_in_shared_page (victim, list_end(&victim->shared_page));
+
+	return new_frame;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -222,16 +225,12 @@ vm_get_frame (void) {
 	if( kva == NULL) {
 		frame = vm_evict_frame();
 		memset(frame->kva, 0, PGSIZE);
-	}
-  else {
-  	frame = malloc(sizeof(*frame));
-	frame->kva = kva;
-  }
-  ASSERT (frame != NULL);
-
+	} else {
+  		frame = malloc(sizeof(*frame));
+		frame->kva = kva;
+  	}
+  	ASSERT (frame != NULL);
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
-
-
 	frame->page = NULL;
 	ASSERT (frame->page == NULL);
 
@@ -318,6 +317,25 @@ vm_claim_page (void *va) {
 	return vm_do_claim_page (page);
 }
 
+static bool
+set_link_for_shared_page(struct frame *frame, void* kva) {
+	struct page *page;
+	struct list_elem *curr;
+	for(curr = list_begin(&frame->shared_page);
+		curr != list_end(&frame->shared_page);
+		curr = list_next(curr)) {
+		page = list_entry(curr, struct page, shared_page_element);
+
+		if (!pml4_set_page(page->pml4, page->va, kva, page->is_writable)) {
+			clear_link_in_shared_page (frame, &page->shared_page_element);
+			return false;
+		} else {
+			pml4_set_write_bit(page->pml4, page->va, false);
+		}
+		return true;
+	}
+}
+
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
@@ -328,17 +346,10 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-
-	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->is_writable )) { // va, kva should be page aligned
-		palloc_free_page(frame->kva);
-		free(frame);
-		page->frame = NULL;
-		/** TODO: frame table 업데이트 로직 고민하기
-		 * cand 1. update frame table
-		 * cand 2. process might terminate if returned false. cleanup frames/pages in thread_exit procedure
-		 */
+	if (!set_link_for_shared_page(page)) {
 		return false;
 	}
+
 	return swap_in (page, frame->kva);
 }
 
@@ -428,8 +439,6 @@ page_shared_frame (uint64_t *parent_pml4, struct page *dst_page, struct page *sr
 	struct frame *new_frame;
 	new_frame = vm_get_frame();
 
-	set_write_bit_both();
-
 	new_frame->page = dst_page;
 	dst_page->frame = new_frame;
 
@@ -439,7 +448,7 @@ page_shared_frame (uint64_t *parent_pml4, struct page *dst_page, struct page *sr
 static bool
 page_copy_file_backed(struct page *dst_page, struct page *src_page) {
 	if (copy_file_page(dst_page, src_page)) {
-		if (page_shared_frame(dst_page, src_page)) {
+		if (page_copy_frame(dst_page, src_page)) {
 			return true;
 		}
 	}
@@ -538,11 +547,13 @@ spt_set_unaccessed (struct thread *thread, struct supplemental_page_table *spt) 
 static bool
 check_all_shared_pages_accessed (struct frame *frame) {
 	struct page *page;
-	for(struct list_elem *curr = list_begin(frame->shared_page);
-		curr != list_end(frame->shared_page);
+	struct list_elem *curr;
+
+	for(curr = list_begin(&frame->shared_page);
+		curr != list_end(&frame->shared_page);
 		curr = list_next(curr)) {
 			page = list_entry(curr, struct page, shared_page_element);
-			if (!pm14_is_accessed(page->pml4, page->va)) {
+			if (pm14_is_accessed(page->pml4, page->va)) {
 				return false;
 			}
 	}
