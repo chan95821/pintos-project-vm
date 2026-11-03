@@ -187,6 +187,8 @@ vm_evict_frame (void) {
 
 	pml4_clear_page(thread_current ()->pml4, victim->page->va);
 	victim->page->frame = NULL;
+// TODO: deprecated
+	victim->page = NULL;
 	/**
 	 * Update corresponding page status -
 	 * using swap_out would be adeq
@@ -208,15 +210,17 @@ vm_get_frame (void) {
 		frame = vm_evict_frame();
 		memset(frame->kva, 0, PGSIZE);
 	}
-  else {
-  	frame = malloc(sizeof(*frame));
-	frame->kva = kva;
-  }
-  ASSERT (frame != NULL);
+    else {
+  		frame = malloc(sizeof(*frame));
+		frame->kva = kva;
+  	}
+  	ASSERT (frame != NULL);
 
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 
+	list_init(&frame->shared_page);
 
+	//TODO: deprecated
 	frame->page = NULL;
 	ASSERT (frame->page == NULL);
 
@@ -305,8 +309,11 @@ vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
 
 	/* Set links */
-	frame->page = page;
+	list_push_back(&frame->shared_page, &page->shared_page_element);
 	page->frame = frame;
+
+	//TODO: deprecated
+	frame->page = page;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 
@@ -347,11 +354,11 @@ copy_error_free_memory (struct page *dst_page) {
 static bool
 page_copy_uninit(struct page *dst_page, struct page *src_page) {
 	memcpy(dst_page, src_page, sizeof(struct page));
-
+	dst_page->thread = thread_current();
 	if(src_page->uninit.aux == NULL) {
 		return true;
 	}
-
+	
 	dst_page->uninit.aux = NULL;
 	struct file_src *aux = malloc(sizeof(struct file_src));
 	if (!aux) {
@@ -393,23 +400,27 @@ copy_file_page(struct page *dst_page, struct page *src_page) {
 
 static bool
 copy_frame(struct page *dst_page, struct page *src_page) {
-	struct frame *new_frame;
-	if (!(new_frame = vm_get_frame())) {
-		return false;
-	}
-		
-	new_frame->page = dst_page;
-	dst_page->frame = new_frame;
-	memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
+	dst_page->frame = src_page->frame;
+	dst_page->is_writable = src_page->is_writable;
+	dst_page->thread = thread_current();
+
+	list_push_back(&src_page->frame->shared_page, &dst_page->shared_page_element);
+
+	// struct frame *new_frame;
+	// if (!(new_frame = vm_get_frame())) {
+	// 	return false;
+	// }
+	// //TODO: deprecated
+	// new_frame->page = dst_page;
+	// dst_page->frame = new_frame;
+	// memcpy(new_frame->kva, src_page->frame->kva, PGSIZE);
 	return true;
 }
 
 static bool
 page_copy_file_backed(struct page *dst_page, struct page *src_page) {
-	if (copy_file_page(dst_page, src_page)) {
-		if (copy_frame(dst_page, src_page)) {
-			return true;
-		}
+	if (copy_file_page(dst_page, src_page) && copy_frame(dst_page, src_page)) {
+		return true;
 	}
 	return false;
 }
@@ -451,6 +462,9 @@ page_copy(struct page *src_page) {
 		if (!pml4_set_page(thread_current()->pml4, dst_page->va, dst_page->frame->kva, dst_page->is_writable)) {
 			goto error;
 		}
+		//PML4가 이니셜라이즈 되고 나서 프레임이 있으면 == uninit이 아니면 퍼미션 설정해야함..!
+		pml4_set_writable(src_page->thread->pml4, src_page->va, 0);
+		pml4_set_writable(dst_page->thread->pml4, dst_page->va, 0);
 	}
 
 	return dst_page;

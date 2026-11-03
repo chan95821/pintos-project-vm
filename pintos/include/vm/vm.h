@@ -49,6 +49,8 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem element;
+	struct list_elem shared_page_element;
+	struct thread *thread;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -67,6 +69,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list shared_page;
 };
 
 struct file_src {
