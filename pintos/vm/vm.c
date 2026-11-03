@@ -13,6 +13,8 @@
 
 #define MAX_STACK_ADDR 0x47380000
 
+#define NO_SLOT SIZE_MAX
+
 #define MAX_STACK_ADDR (USER_STACK - (1 << 20))
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -235,6 +237,7 @@ vm_get_frame (void) {
 	frame->kva = vm_get_kva();
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 	list_init(&frame->shared_page);
+	frame->swap_index = NO_SLOT;
 	/*TODO: 근데 이거 lock은 안 걸어도 되는 건가?*/
 
 	return frame;
@@ -326,12 +329,14 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
 void
+
 vm_dealloc_page (struct page *page) {
 
 	struct frame *frame = page->frame;
 	if(frame != NULL) {
 		list_remove(&page->shared_page_element);
 		if(list_size(&frame->shared_page) >= 1) {
+			pml4_clear_page(page->pml4, page->va);
 			page->frame = NULL;
 		}
 	}
@@ -361,7 +366,7 @@ set_link_for_shared_page(struct frame *frame, void* kva) {
 			clear_link_in_shared_page (frame, &page->shared_page_element);
 			return false;
 		} else {
-			pml4_set_write_bit(page->pml4, page->va, false);
+			pml4_set_writable(page->pml4, page->va, false);
 		}
 	}
 

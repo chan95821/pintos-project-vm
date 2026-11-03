@@ -73,6 +73,7 @@ struct frame {
 	//TODO: deprecated - page 없애기
 	struct page *page;
 	struct list shared_page;
+	size_t swap_index;
 };
 
 struct file_src {
