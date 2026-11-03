@@ -208,6 +208,17 @@ vm_evict_kva (void) {
 	return victim_kva;
 }
 
+static void *
+vm_get_kva (void) {
+	void *kva = palloc_get_page(PAL_USER | PAL_ZERO); 
+	if( kva == NULL) {
+		kva = vm_evict_kva();
+		memset(kva, 0, PGSIZE);
+	}
+
+	return kva;
+}
+
 /* palloc() and get frame. If there is no available page, evict the page
  * and return it. This always return valid address. That is, if the user pool
  * memory is full, this function evicts the frame to get the available memory
@@ -219,16 +230,10 @@ vm_get_frame (void) {
 	frame = malloc(sizeof(*frame));
 	ASSERT (frame != NULL);
 
-	void *kva = palloc_get_page(PAL_USER | PAL_ZERO); 
-	if( kva == NULL) {
-		frame->kva = vm_evict_kva();
-		memset(frame->kva, 0, PGSIZE);
-	} else {
-		frame->kva = kva;
-  	}
+	frame->kva = vm_get_kva();
 	// TODO: frame table 없는 경우이므로 table 있다면 업데이트 해줘야
 	list_init(&frame->shared_page);
-	ASSERT (frame->page == NULL);
+	/*TODO: 근데 이거 lock은 안 걸어도 되는 건가?*/
 
 	return frame;
 }
@@ -328,25 +333,35 @@ set_link_for_shared_page(struct frame *frame, void* kva) {
 		} else {
 			pml4_set_write_bit(page->pml4, page->va, false);
 		}
-		return true;
 	}
+
+	return true;
 }
 
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
-	struct frame *frame = vm_get_frame ();
 
-	/* Set links */
-	frame->page = page;
-	page->frame = frame;
-
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	if (!set_link_for_shared_page(page)) {
-		return false;
+	if (page->frame != NULL) {
+		void *kva = vm_get_kva();
+		page->frame->kva = kva;
+		if (!set_link_for_shared_page(page->frame, kva)) {
+			return false;
+		}
 	}
-
-	return swap_in (page, frame->kva);
+	else {
+		struct frame *frame = vm_get_frame ();
+		page->frame = frame;
+		list_push_front(&frame->shared_page, &page->shared_page_element);
+		if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->is_writable )) { // va, kva should be page aligned
+			palloc_free_page(frame->kva);
+			free(frame);
+			page->frame = NULL;
+			return false;
+		}
+	}
+	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	return swap_in (page, page->frame->kva);
 }
 
 /* Initialize new supplemental page table */
